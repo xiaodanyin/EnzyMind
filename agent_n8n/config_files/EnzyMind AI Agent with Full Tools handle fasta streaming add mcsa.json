@@ -1,0 +1,949 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.input_context }}",
+        "options": {
+          "systemMessage": "You are a helpful assistant. You are **EnzyMind**, an advanced computational biology assistant specializing in enzyme analysis, structure prediction, and kinetic modeling.\n\nYou have access to a comprehensive suite of tools (EnzyMind Gateway API) to assist users. Your goal is to interpret the user's biological questions, select the correct tool, and synthesize the technical JSON outputs into clear, readable, and scientific answers.\n\n### 🛠️ Tool Selection Strategy (Mental Sandbox)\n\nBefore calling a tool, analyze the user's input type (UniProt ID, Sequence, SMILES, or Reaction) and intent:\n\n1.  **General Information & Identification:**\n    * If the user provides a UniProt ID and asks for \"info\" or \"what is this\", start with `query_enzyme_info`. It returns the most comprehensive data.\n    * If asking \"is this an enzyme?\", use `check_is_enzyme` (database) or `recognize_enzyme` (prediction).\n\n2.  **Structure & folding:**\n    * For 3D structure queries, use `predict_structure` (ESMFold). **Note:** This tool returns a PDB file path. You must tell the user the prediction is complete and provide the path or summary provided by the tool.\n\n3.  **Kinetics (kcat, Km) & Substrates:**\n    * **Querying known data:** If the user asks for known kinetic params for a UniProt ID, use `query_kinetics`.\n    * **Predicting new data:** If the user provides a specific SMILES string (substrate) and wants to know if it reacts or how fast, use `predict_substrate`, `predict_kcat`, or `predict_km`.\n\n4.  **Functional Sites:**\n    * Use `query_active_sites` or `query_features` to find binding sites, metal ions, or active residues.\n\n5.  **Search & Alignment:**\n    * Use `query_blast` if the user wants to find similar sequences or homologs.\n\n### ⚠️ Critical Operational Rules\n\n1.  **JSON Inputs:** All tools require inputs in specific JSON formats (e.g., `{\"uniprot_id\": \"P12345\"}` or `{\"query\": \"...\"}`). You must strictly adhere to the tool definitions.\n2.  **Data Synthesis:** Do NOT output raw JSON to the user unless explicitly asked.\n    * Format lists of active sites or kinetic parameters into **Markdown Tables**.\n    * Summarize \"True/False\" predictions with confidence scores (e.g., \"Yes, this is likely an enzyme with 95% confidence\").\n3.  **Language:** Always respond to the user in the language they used.\n\n### 🧬 Handling FASTA/Sequence Inputs\nIf the input contains `[System Data]: Extracted Sequence`, you MUST:\n1. **NOT** output the sequence string in your final response (it is too long).\n2. **Directly use** this sequence string as the `query` or `sequence` parameter for any tool calls (like Predict EC, Recognize Enzyme, etc.).\n\nStart by analyzing the user's request.",
+          "returnIntermediateSteps": true,
+          "enableStreaming": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1600,
+        192
+      ],
+      "id": "1c15a5a7-7cc2-49fa-ac5a-9257951f8249",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c6214151-5762-4299-ba2a-579781b0f555",
+              "name": "input_context",
+              "value": "={{ $json.original_message }}\n\n[System Data]: User uploaded a FASTA file. \nExtracted Sequence: \"{{ $json.parsed_sequence }}\"\n\n[INSTRUCTION]: Automatically use the Extracted Sequence above as the 'query' or 'sequence' argument for any relevant tool calls. ",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        224,
+        0
+      ],
+      "id": "3cf3aeb5-9052-44d4-bb0b-092a61e52522",
+      "name": "Format: FASTA Context"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst results = [];\n\n// 获取 Webhook 原始消息\nlet originalMessage = \"\";\ntry {\n  originalMessage = $(\"Webhook\").first().json.body.message;\n} catch (e) {\n  originalMessage = \"No message found\";\n}\n\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n\n  // 1. 检查二进制数据是否存在\n  if (!item.binary || !item.binary.data) {\n    continue;\n  }\n\n  try {\n    // 2. 使用 this.helpers 而不是 $helpers\n    // 这里的 'data' 必须对应 Webhook 节点传入的二进制字段名\n    const buffer = await this.helpers.getBinaryDataBuffer(i, 'data');\n    const text = buffer.toString('utf8');\n\n    // 3. 解析 FASTA\n    const lines = text.split(/\\r?\\n/);\n    const sequenceParts = [];\n    \n    for (const line of lines) {\n      const trimmed = line.trim();\n      // 跳过空行和描述行 (>)\n      if (trimmed.length > 0 && !trimmed.startsWith(\">\")) {\n        sequenceParts.push(trimmed);\n      }\n    }\n\n    results.push({\n      json: {\n        parsed_sequence: sequenceParts.join(''),\n        fileName: item.binary.data.fileName || \"unknown\",\n        original_message: originalMessage\n      }\n    });\n\n  } catch (error) {\n    results.push({\n      json: { \n        error: error.message, \n        status: \"failed\",\n        fileName: item.binary.data.fileName || \"unknown\" \n      }\n    });\n  }\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "eb45f886-de19-437b-9788-b908eea01712",
+      "name": "Parse FASTA"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8470a2b5-e0cd-4933-bb2b-741a65d83a9a",
+              "leftValue": "={{ $binary.data.fileName }}",
+              "rightValue": "fasta",
+              "operator": {
+                "type": "string",
+                "operation": "endsWith"
+              }
+            },
+            {
+              "id": "3e9b1062-8494-4b5b-80cc-23d2112e75e3",
+              "leftValue": "={{ $binary.data.fileName }}",
+              "rightValue": "fa",
+              "operator": {
+                "type": "string",
+                "operation": "endsWith"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -224,
+        96
+      ],
+      "id": "d68a654e-fe56-4013-b5f6-e42bb35b862d",
+      "name": "If FASTA?"
+    },
+    {
+      "parameters": {
+        "fileName": "=/tmp/{{ $json.body.userId }}_{{$binary.data.fileName.replace(/\\s/g, '_')}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.writeBinaryFile",
+      "typeVersion": 1,
+      "position": [
+        0,
+        192
+      ],
+      "id": "deb5dea1-c4ea-4e1d-be87-205df3327777",
+      "name": "Save File"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a918237b-1234-4567-8901-234567890abc",
+              "name": "input_context",
+              "value": "={{ $json.body.message }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        224,
+        384
+      ],
+      "id": "e08995f4-f8dc-4211-adb7-a8dd2e5b4134",
+      "name": "Format: Text Only"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c6214151-5762-4299-ba2a-579781b0f555",
+              "name": "input_context",
+              "value": "={{ $json.body.message }}\n\n[System Note]: User uploaded a file.\nFile Name: {{ $binary.data.fileName }}\n\n[CRITICAL INSTRUCTION]: \n1. The detected file is NOT a FASTA file (.fasta or .fa).\n2. This workflow ONLY supports FASTA files for sequence extraction and analysis.\n3. DO NOT attempt to read this file or call any analysis tools.\n4. Please apologize to the user and explicitly request them to upload a standard FASTA file to proceed.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        224,
+        192
+      ],
+      "id": "384fc37d-a289-4c7c-aa96-87dba8c8c155",
+      "name": "Format: With File"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1e1c7380-602d-4876-880c-0359876274e7",
+              "leftValue": "={{ $binary.data }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -448,
+        192
+      ],
+      "id": "fe56028a-eb9f-4ddd-9ec3-56f1435262c8",
+      "name": "If File Exists"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Predict active sites and binding residues using EasIFA.\nInput must be a JSON object using ONE of the following formats:\n1. By ID: {\"uniprot_id\": \"P12345\"}\n2. By Sequence: {\"aa_sequence\": \"MKF...\"}\n3. By Sequence + Reaction: {\"aa_sequence\": \"MKF...\", \"rxn_smiles\": \"CC(=O)O>>CC(=O)OC\"}\nThe tool returns a formatted Markdown table listing residue indices, names, active types, and confidence scores.",
+        "method": "POST",
+        "url": "https://enzymindactions.iddd.group/api/predict/active-sites",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('JSON', ``, 'json') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        704,
+        416
+      ],
+      "id": "b0b67e43-6f52-46b2-9f7f-7f6e7b510b14",
+      "name": "Predict Active Sites"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatDeepSeek",
+      "typeVersion": 1,
+      "position": [
+        448,
+        416
+      ],
+      "id": "5780fde6-6e88-4de2-91c1-86f177a5dad3",
+      "name": "DeepSeek Chat Model",
+      "credentials": {
+        "deepSeekApi": {
+          "id": "83qZPE3rVgIyYQyU",
+          "name": "DeepSeek account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Webhook').item.json.body.userID }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        576,
+        416
+      ],
+      "id": "dbea9205-15fc-4ec5-97e6-d695e78fcf56",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Retrieve the raw amino acid sequence string, sequence length, and molecular weight for a specific UniProt ID.\nUse this tool when you need the exact sequence characters (e.g., for display or further analysis).\nInput must be a JSON object containing:\n- \"uniprot_id\": The UniProt ID (e.g., \"P12345\").",
+        "method": "POST",
+        "url": "https://enzymindactions.iddd.group/api/query/sequence-info",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('JSON', ``, 'json') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        832,
+        416
+      ],
+      "id": "13cd7d53-209d-4a8e-a8b2-ed9515826de2",
+      "name": "Query Seq Info"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Retrieve known experimental kinetic parameters (Km, Vmax, kcat) from the database for a specific UniProt ID.\nUse this tool to look up existing data, NOT to predict values for new substrates.\nInput must be a JSON object containing:\n- \"query\": The UniProt ID (e.g., \"P12345\").",
+        "method": "POST",
+        "url": "https://enzymindactions.iddd.group/api/query/kinetics",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('JSON', ``, 'json') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        960,
+        416
+      ],
+      "id": "96b5ff02-6126-4cdf-8282-a24b5d25e1a9",
+      "name": "Query Kinetics"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Retrieve various functional sites (Active Sites, Binding Sites, Metal binding, etc.) for a specific UniProt ID.\nInput must be a JSON object containing:\n- \"query\": The UniProt ID (e.g., \"P12345\").\nThe tool returns a detailed list and a formatted markdown table of these sites.",
+        "method": "POST",
+        "url": "https://enzymindactions.iddd.group/api/query/features",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('JSON', ``, 'json') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        1088,
+        416
+      ],
+      "id": "371f6758-91a4-4cba-8244-e2313314e3de",
+      "name": "Query Features"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Retrieve comprehensive integrated information (sequence, kinetics, active sites, reactions) for a UniProt ID.\nWARNING: This tool returns a very large amount of data. Use it only when a full overview is required.\nInput must be a JSON object containing:\n- \"uniprot_id\": The UniProt ID (e.g., \"P12345\").\nYou must summarize the key findings from the result rather than dumping the full JSON.",
+        "method": "POST",
+        "url": "https://enzymindactions.iddd.group/api/query/enzyme-info",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('JSON', ``, 'json') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        1216,
+        416
+      ],
+      "id": "fec91518-fa8d-4cd0-91a3-a17465d9e821",
+      "name": "Query Enzyme Info"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Check if a specific UniProt ID is annotated as an enzyme in the database (this is a lookup, not a prediction).\nInput must be a JSON object containing:\n- \"query\": The UniProt ID (e.g., \"P12345\").",
+        "method": "POST",
+        "url": "https://enzymindactions.iddd.group/api/check/enzyme",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('JSON', ``, 'json') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        1344,
+        416
+      ],
+      "id": "ff742214-4a64-4734-b721-18de08dc1d0b",
+      "name": "Check Enzyme"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Retrieve known catalytic activities and chemical reaction descriptions for a specific UniProt ID from the database (this is a lookup, not a prediction).\nInput must be a JSON object containing:\n- \"query\": The UniProt ID (e.g., \"P12345\").",
+        "method": "POST",
+        "url": "https://enzymindactions.iddd.group/api/query/catalytic-activity",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('JSON', ``, 'json') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        1472,
+        416
+      ],
+      "id": "f5abb78f-9d18-4916-871d-2bb7e4bb09cb",
+      "name": "Query Cat Activity"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Query enzyme subclass information based on a class keyword (e.g., \"hydrolase\", \"oxidoreductase\").\nInput must be a JSON object containing:\n- \"query\": The enzyme class keyword.\n- \"num_samples\": (Optional) Integer to specify the number of subclasses to randomly sample (default is 10).",
+        "method": "POST",
+        "url": "https://enzymindactions.iddd.group/api/query/enzyme-subclass",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('JSON', ``, 'json') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        1600,
+        416
+      ],
+      "id": "b18a4526-c1ca-4c02-bb36-1796786af2fc",
+      "name": "Query Subclass"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Retrieve functional annotations, protein names, organism, and gene names for a specific UniProt ID.\nInput must be a JSON object containing:\n- \"query\": The UniProt ID (e.g., \"P12345\").",
+        "method": "POST",
+        "url": "https://enzymindactions.iddd.group/api/query/function",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('JSON', ``, 'json') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        1728,
+        416
+      ],
+      "id": "99b0b17b-bdc1-4d79-b905-19bb810894d7",
+      "name": "Query Function"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Perform a BLAST sequence alignment search to find similar proteins or homologs.\nInput must be a JSON object containing:\n- \"query\": The UniProt ID (e.g., \"P12345\") or amino acid sequence.\n- \"max_results\": (Optional) Integer to limit the number of hits returned (default is 5).",
+        "method": "POST",
+        "url": "https://enzymindactions.iddd.group/api/query/blast",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('JSON', ``, 'json') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        1856,
+        416
+      ],
+      "id": "1f6095e5-c6ec-4fa5-8ea3-9fd30b252345",
+      "name": "Query BLAST"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Compute physicochemical parameters (e.g., Molecular Weight, Theoretical pI, Instability Index, Aliphatic Index) from an amino acid sequence.\nInput must be a JSON object containing:\n- \"query\": The amino acid sequence string (or UniProt ID).",
+        "method": "POST",
+        "url": "https://enzymindactions.iddd.group/api/query/protein-params",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('JSON', ``, 'json') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        1984,
+        416
+      ],
+      "id": "8a2a9a93-5508-453e-a3c3-c65bcb718c59",
+      "name": "Query Protein Params"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Recommend enzyme types (EC numbers) capable of catalyzing a specific chemical reaction.\nInput must be a JSON object containing:\n- \"query\": The reaction SMILES string representing the transformation (format: \"Reactant>>Product\", e.g., \"CC(=O)O>>CCO\").",
+        "method": "POST",
+        "url": "https://enzymindactions.iddd.group/api/query/enzyme-type",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('JSON', ``, 'json') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        2112,
+        416
+      ],
+      "id": "fafd3806-05bd-472f-9269-b36bd1354a99",
+      "name": "Query Enzyme Type"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Predict the Michaelis constant (Km) for an enzyme-substrate pair.\nInput must be a JSON object containing:\n- \"smiles\": The substrate SMILES string.\n- \"enzyme_input_type\": \"uniprot\" or \"sequence\".\n- \"enzyme_query\": The UniProt ID (e.g., \"P12345\") or amino acid sequence.",
+        "method": "POST",
+        "url": "https://enzymindactions.iddd.group/api/predict/km",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('JSON', ``, 'json') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        2240,
+        416
+      ],
+      "id": "eba1a6e3-9f82-4a42-96e4-d1421b08106b",
+      "name": "Predict Km"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Predict the catalytic constant (kcat) for an enzyme-substrate pair.\nInput must be a JSON object containing:\n- \"smiles\": The substrate SMILES string.\n- \"enzyme_input_type\": \"uniprot\" or \"sequence\".\n- \"enzyme_query\": The UniProt ID (e.g., \"P12345\") or amino acid sequence.",
+        "method": "POST",
+        "url": "https://enzymindactions.iddd.group/api/predict/kcat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('JSON', ``, 'json') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        2368,
+        416
+      ],
+      "id": "f4a2f17d-c189-49f0-b416-9e57de46cc98",
+      "name": "Predict kcat"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Predict if a small molecule is a substrate for a specific enzyme.\nInput must be a JSON object containing:\n- \"smiles\": The SMILES string of the small molecule.\n- \"enzyme_input_type\": Must be \"uniprot\" or \"sequence\".\n- \"enzyme_query\": The UniProt ID (e.g., \"P12345\") or the amino acid sequence.",
+        "method": "POST",
+        "url": "https://enzymindactions.iddd.group/api/predict/substrate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('JSON', ``, 'json') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        2496,
+        416
+      ],
+      "id": "a0f371f7-4d6d-4367-8b38-a74ad8d66079",
+      "name": "Predict Substrate"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Predict the Enzyme Commission (EC) number for a protein based on its UniProt ID or amino acid sequence.\nInput must be a JSON object containing:\n- \"input_type\": either \"uniprot\" or \"sequence\".\n- \"query\": the actual UniProt ID (e.g., \"P12345\") or the amino acid sequence string.",
+        "method": "POST",
+        "url": "https://enzymindactions.iddd.group/api/predict/ec",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('JSON', ``, 'json') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        2624,
+        416
+      ],
+      "id": "4000c685-a446-4760-bc70-96ae8c81e06d",
+      "name": "Predict EC"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Determine if a protein is an enzyme based on UniProt ID or amino acid sequence.\nInput must be a valid JSON object with:\n- \"input_type\": either \"uniprot\" or \"sequence\"\n- \"query\": the UniProt ID (e.g., \"P12345\") or the amino acid sequence string.",
+        "method": "POST",
+        "url": "https://enzymindactions.iddd.group/api/recognize/enzyme",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('JSON', ``, 'json') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        2752,
+        416
+      ],
+      "id": "71554672-3c79-4ace-9f6a-513b32b2d35c",
+      "name": "Recognize Enzyme"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "8e6add2a-15cd-4a13-be8f-937593f5680a",
+        "responseMode": "streaming",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -672,
+        192
+      ],
+      "id": "afa2cbf6-04ca-4795-bf5c-6e0148dcfc3d",
+      "name": "Webhook",
+      "webhookId": "3fac47dd-165f-4734-a362-5660e7ce9bdf"
+    },
+    {
+      "parameters": {
+        "description": "Delegates enzymology research tasks to the autonomous M-CSA Expert System. This agent handles the complete data retrieval lifecycle: it performs fuzzy searches to identify enzymes by name, verifies IDs (UniProt/PDB/MCSA), and retrieves deep chemical details including reaction stoichiometry, catalytic active site residues, and step-by-step electron flow mechanisms. Returns a comprehensive, scientifically formatted report (often with tables). Use this tool for any request regarding enzyme functions, structures, or catalytic mechanisms.",
+        "workflowId": {
+          "__rl": true,
+          "value": "FsVjg4e5U51ZsWsu",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/FsVjg4e5U51ZsWsu",
+          "cachedResultName": "Tool - MCSA Expert add userID"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "query": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('query', `- query: (string, required): Regarding questions related to enzymes in the MCSA dataset.`, 'string') }}",
+            "userID": "={{ $('Webhook').item.json.body.userID }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "query",
+              "displayName": "query",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "userID",
+              "displayName": "userID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        2880,
+        416
+      ],
+      "id": "c75144d5-6cde-47dd-bdd4-4096e1a2b0ac",
+      "name": "Call 'Tool - MCSA Expert'"
+    }
+  ],
+  "connections": {
+    "Format: FASTA Context": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse FASTA": {
+      "main": [
+        [
+          {
+            "node": "Format: FASTA Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If FASTA?": {
+      "main": [
+        [
+          {
+            "node": "Parse FASTA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save File": {
+      "main": [
+        [
+          {
+            "node": "Format: With File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format: Text Only": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format: With File": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If File Exists": {
+      "main": [
+        [
+          {
+            "node": "If FASTA?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format: Text Only",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Predict Active Sites": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DeepSeek Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Seq Info": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Kinetics": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Features": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Enzyme Info": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Enzyme": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Cat Activity": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Subclass": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Function": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query BLAST": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Protein Params": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Enzyme Type": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Predict Km": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Predict kcat": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Predict Substrate": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Predict EC": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recognize Enzyme": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "If File Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'Tool - MCSA Expert'": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1e3ec630b5ddf8752ce007cb2fbb4acf267bd9ce79da17b39ff05ec0302ea1b5"
+  }
+}

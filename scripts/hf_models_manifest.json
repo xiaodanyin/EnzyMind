@@ -1,0 +1,11 @@
+{
+  "repo_id": "xiaoruiwang/EnzyMind_Models",
+  "repo_type": "model",
+  "paths": [
+    "services/ecnumber_predict/checkpoints",
+    "services/enzy_recognize/checkpoints",
+    "services/kcat_predict/checkpoints",
+    "services/km_predict/checkpoints",
+    "services/substrate_predict/checkpoints"
+  ]
+}

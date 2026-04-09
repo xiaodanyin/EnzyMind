@@ -1,0 +1,390 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "query"
+            },
+            {
+              "name": "userID"
+            }
+          ]
+        }
+      },
+      "id": "c055762a-8fe7-4141-a639-df2372f30060",
+      "typeVersion": 1.1,
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [
+        464,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "API Endpoint: POST /api/enzyme/search. \nFunction: Fuzzy search for enzymes by name to retrieve their MCSA/UniProt/PDB IDs.\n",
+        "method": "POST",
+        "url": "http://172.17.0.1:18919/api/enzyme/search",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "name",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('parameters0_Value', `- name (string, required): Enzyme name.`, 'string') }}"
+            },
+            {
+              "name": "limit",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('parameters1_Value', `- limit (integer, optional): Max results (default 5).`, 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        784,
+        688
+      ],
+      "id": "f1a4fa32-5c64-4b45-ac4c-52b8bc71a2e3",
+      "name": "Tool: Search Name"
+    },
+    {
+      "parameters": {
+        "toolDescription": "API Endpoint: POST /api/enzyme/reaction.\nFunction: Retrieve reaction stoichiometry, reactants, products, and EC number.\n",
+        "method": "POST",
+        "url": "http://172.17.0.1:18919/api/enzyme/reaction",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "query_id",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('parameters0_Value', `- query_id (string, required): The MCSA ID, UniProt ID, or PDB ID.`, 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        944,
+        688
+      ],
+      "id": "7f022046-8de2-4e20-b584-4e24eaefcba4",
+      "name": "Tool: Get Reaction"
+    },
+    {
+      "parameters": {
+        "toolDescription": "API Endpoint: POST /api/enzyme/active_sites.\nFunction: Retrieve catalytic active site residues and their roles.\n",
+        "method": "POST",
+        "url": "http://172.17.0.1:18919/api/enzyme/active_sites",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "query_id",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('parameters0_Value', `- query_id (string, required): The MCSA ID, UniProt ID, or PDB ID.`, 'string') }}"
+            },
+            {
+              "name": "view",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('parameters1_Value', `- view (string, optional): 'uniprot' (sequence), 'pdb' (structure), or 'both'. Default 'both'.`, 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        1104,
+        688
+      ],
+      "id": "320f54ac-34b6-4f15-8bb7-e27c52091015",
+      "name": "Tool: Active Sites"
+    },
+    {
+      "parameters": {
+        "toolDescription": "API Endpoint: POST /api/enzyme/mechanism/summary.\nFunction: Retrieve a textual summary of the catalytic mechanism.\n",
+        "method": "POST",
+        "url": "http://172.17.0.1:18919/api/enzyme/mechanism/summary",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "query_id",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('parameters0_Value', `- query_id (string, required): The MCSA ID, UniProt ID, or PDB ID.`, 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        1264,
+        688
+      ],
+      "id": "dda07125-4313-4e3b-bb86-cd2bd0670643",
+      "name": "Tool: Mech Summary"
+    },
+    {
+      "parameters": {
+        "toolDescription": "API Endpoint: POST /api/enzyme/mechanism/steps.\nFunction: Retrieve detailed step-by-step mechanism (electron flow, intermediate formation).\n",
+        "method": "POST",
+        "url": "http://172.17.0.1:18919/api/enzyme/mechanism/steps",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "query_id",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('parameters0_Value', `- query_id (string, required): The MCSA ID, UniProt ID, or PDB ID.`, 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        1424,
+        688
+      ],
+      "id": "b75a8e7d-fcda-440f-bf84-a55994046139",
+      "name": "Tool: Mech Steps"
+    },
+    {
+      "parameters": {
+        "toolDescription": "API Endpoint: POST /api/enzyme/list.\nFunction: List all available enzymes in the database with pagination. Useful for browsing or discovering entries.\n",
+        "method": "POST",
+        "url": "http://172.17.0.1:18919/api/enzyme/list",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "page",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('parameters0_Value', `- page (integer, optional): Page number (default 1).`, 'string') }}"
+            },
+            {
+              "name": "per_page",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('parameters1_Value', `- per_page (integer, optional): Items per page (default 50, max 100).`, 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        1584,
+        688
+      ],
+      "id": "69ad97c7-1c22-4039-93c1-2b9fd0dd5dab",
+      "name": "Tool: List Enzymes"
+    },
+    {
+      "parameters": {
+        "toolDescription": "API Endpoint: POST /api/enzyme/identifiers.\nFunction: Retrieve all associated identifiers (MCSA, UniProt, PDB) for a specific enzyme. Useful for cross-referencing or ID conversion.",
+        "method": "POST",
+        "url": "http://172.17.0.1:18919/api/enzyme/identifiers",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "query_id",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('parameters0_Value', `- query_id (string, required): The MCSA ID, UniProt ID, or PDB ID.`, 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        1744,
+        688
+      ],
+      "id": "d419eed4-4fa4-48d8-8063-af3725d95835",
+      "name": "Tool: Get Identifiers"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.query }}",
+        "options": {
+          "systemMessage": "You are the **MCSA Dataset Expert**, a specialized computational chemist assistant. Your sole purpose is to orchestrate calls to the M-CSA database API to retrieve verified enzymology data.\n\n### 🧩 TOOLBOX CAPABILITIES (Use the right tool for the job)\n- **Discovery & ID Management**:\n  - `Tool: Search Name`: **Start here** if you only have a name. Fuzzy searches enzyme names.\n  - `Tool: List Enzymes`: Use only if the user wants to browse/explore the database without a specific target.\n  - `Tool: Get Identifiers`: Use to translate between IDs.\n\n- **Deep Data Retrieval** (Requires a specific `query_id`):\n  - `Tool: Get Reaction`: For Stoichiometry, Reactants, Products, and EC numbers.\n  - `Tool: Active Sites`: For Structural analysis, specific residues, and roles.\n  - `Tool: Mech Summary`: For a high-level text overview.\n  - `Tool: Mech Steps`: For granular, step-by-step electron flow.\n\n### ⚡ OPERATIONAL PROTOCOL (Follow strictly)\n\n#### 1. THE IDENTIFICATION GATE (Priority #1)\nYou cannot retrieve details without a verified ID.\n- **Scenario A: User gives a Name (e.g., \"Glutamate Racemase\")**\n  - **Action**: Call `Tool: Search Name` immediately.\n  - **Logic**: \n    - If **1 perfect match** is found: Proceed directly to Step 2 using that ID.\n    - If **multiple matches**: Present them in a **Table** and ask for clarification.\n    - If **no results**: Inform the user clearly.\n\n- **Scenario B: User gives an ID (e.g., \"P56868\")**\n  - **Action**: Skip search. Proceed directly to Step 2 using this ID.\n\n#### 2. DATA RETRIEVAL & SYNTHESIS\nSelect the tool that answers the specific scientific question:\n- *Residues/Structure* -> **Call `Tool: Active Sites`**.\n- *Reaction Equation* -> **Call `Tool: Get Reaction`**.\n- *Step-by-step Mechanism* -> **Call `Tool: Mech Steps`**.\n- *Full Report* -> **Call ALL detail tools**.\n\n### 📊 PRESENTATION STANDARDS (Table-First Policy)\nYou must present complex data using **Markdown Tables** whenever possible to maximize readability. Follow these formatting rules:\n\n1.  **Search Results / Enzyme Lists**:\n    - Format: `| MCSA ID | Enzyme Name | UniProt ID | PDB ID |`\n    \n2.  **Active Sites (Residues)**:\n    - Format: `| Residue | Position | Role | View (PDB/UniProt) |`\n    - Group residues by function if possible.\n\n3.  **Mechanism Steps**:\n    - Format: `| Step # | Description | Product Formed? |`\n    - Keep descriptions concise inside the table cells.\n\n4.  **Reaction Info**:\n    - Use a text equation for the overall reaction (e.g., **A + B → C + D**).\n    - Use a table for reactants/products if detailed properties (like ChEBI IDs) are requested.\n\n### 🚫 CRITICAL RULES (ZERO HALLUCINATION)\n1.  **ID Mandatory**: Never call a Detail Tool with a guessed name. You MUST use an ID.\n2.  **Factuality**: Do not invent mechanism steps or residues. If data is \"null\", state \"N/A\".\n3.  **High-Value Formatting**: Bold **Enzyme Names**, **IDs**, and key **Residues** (e.g., **Cys70**) within the text or tables.",
+          "returnIntermediateSteps": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        896,
+        400
+      ],
+      "id": "15252c95-6726-405b-8814-f6d8c09605d6",
+      "name": "AI Agent1"
+    },
+    {
+      "parameters": {
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatDeepSeek",
+      "typeVersion": 1,
+      "position": [
+        464,
+        688
+      ],
+      "id": "96efdaae-6d03-44d0-8184-66d34f19d995",
+      "name": "DeepSeek Chat Model1",
+      "credentials": {
+        "deepSeekApi": {
+          "id": "83qZPE3rVgIyYQyU",
+          "name": "DeepSeek account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('When Executed by Another Workflow').item.json.userID }}",
+        "contextWindowLength": "=5"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        624,
+        688
+      ],
+      "id": "9b98da0a-3aad-4b5c-adb3-bdfcefcca2ec",
+      "name": "Simple Memory1"
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool: Search Name": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool: Get Reaction": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool: Active Sites": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool: Mech Summary": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool: Mech Steps": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool: List Enzymes": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool: Get Identifiers": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DeepSeek Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory1": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {
+    "When Executed by Another Workflow": [
+      {
+        "query": "帮我查询数据库包含什么酶",
+        "userID": 123
+      }
+    ]
+  },
+  "meta": {
+    "instanceId": "1e3ec630b5ddf8752ce007cb2fbb4acf267bd9ce79da17b39ff05ec0302ea1b5"
+  }
+}
