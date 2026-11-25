@@ -9,8 +9,17 @@ properties using the ExPASy ProtParam service.
 import re
 import logging
 import requests
+import sys
+from pathlib import Path
 from typing import Dict, Any, Optional
 from bs4 import BeautifulSoup
+from Bio import __version__ as biopython_version
+from Bio.SeqUtils.ProtParam import ProteinAnalysis
+
+root = str(Path(__file__).resolve().parents[3])
+if root not in sys.path:
+    sys.path.insert(0, root)
+from shared.uniprot import uniprot_client
 
 
 # Configure logging
@@ -30,13 +39,9 @@ def classify_input_v2(raw: str) -> str:
     raw = raw.strip()
 
     # Check if UniProt ID
-    if re.match(r"^[OPQ][0-9][A-Z0-9]{3}[0-9]$", raw) or re.match(r"^[A-NR-Z][0-9][A-Z0-9]{3}[0-9]$", raw):
+    if re.fullmatch(r"(?:[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9](?:[A-Z][A-Z0-9]{2}[0-9]){1,2})(?:-[1-9][0-9]*)?", raw, re.I):
         logger.info("Detected UniProt ID")
-        url = f"https://rest.uniprot.org/uniprotkb/{raw}.fasta"
-        response = requests.get(url, timeout=30)
-        if response.status_code != 200:
-            raise ValueError("Failed to fetch sequence from UniProt.")
-        return _extract_sequence_from_fasta(response.text)
+        return _clean_sequence(uniprot_client.fetch(raw).sequence)
 
     # Check if FASTA format
     if raw.startswith(">") or "\n>" in raw:
@@ -51,13 +56,18 @@ def classify_input_v2(raw: str) -> str:
 def _extract_sequence_from_fasta(fasta_text: str) -> str:
     """Extract sequence from FASTA text."""
     lines = fasta_text.strip().splitlines()
+    if sum(line.lstrip().startswith('>') for line in lines) != 1:
+        raise ValueError('Select one FASTA record. Multiple sequences cannot be concatenated.')
     seq_lines = [line.strip() for line in lines if not line.startswith(">")]
     return _clean_sequence("".join(seq_lines))
 
 
 def _clean_sequence(seq: str) -> str:
-    """Remove non-amino acid characters."""
-    return re.sub(r"[^A-Z]", "", seq.upper())
+    """Normalize whitespace only; report invalid residues instead of deleting them."""
+    sequence = re.sub(r"\s+", "", seq.upper())
+    if not sequence or re.search(r"[^ACDEFGHIKLMNPQRSTVWY]", sequence):
+        raise ValueError('Use a nonempty sequence of the 20 standard amino acids.')
+    return sequence
 
 
 # ============== ExPASy ProtParam API ==============
@@ -85,12 +95,14 @@ def send_expasy_param_request(url: str, data: dict) -> Optional[str]:
     }
 
     try:
-        response = session.post(url, files=data, headers=session.headers, timeout=60)
+        response = session.post(url, files=data, headers=session.headers, timeout=(5, 20))
         response.raise_for_status()
         return response.text
     except requests.exceptions.RequestException as e:
         logger.error(f"Network request error: {e}")
         return None
+    finally:
+        session.close()
 
 
 def extract_and_process_protparam_html(html_content: str) -> str:
@@ -197,10 +209,7 @@ class ProtParamAnalyzer:
             html_response = send_expasy_param_request(self.EXPASY_URL, data)
             
             if not html_response:
-                return {
-                    "success": False,
-                    "error": "Failed to get response from ExPASy"
-                }
+                return self._local_fallback(clean_seq, 'ExPASy did not respond within the connection/read limit.')
             
             # Process response
             processed = extract_and_process_protparam_html(html_response)
@@ -208,13 +217,18 @@ class ProtParamAnalyzer:
             
             # Parse individual values
             params = self._parse_parameters(processed)
+            required = {'num_amino_acids', 'molecular_weight', 'theoretical_pi', 'gravy'}
+            if not required.issubset(params) or params['num_amino_acids'] != len(clean_seq):
+                return self._local_fallback(clean_seq, 'ExPASy returned an incomplete or mismatched analysis.')
             
             return {
                 "success": True,
                 "sequence_length": len(clean_seq),
                 "markdown": markdown,
                 "raw_text": processed,
-                "parameters": params
+                "parameters": params,
+                "source": {"name": "ExPASy ProtParam", "method": "remote", "url": "https://web.expasy.org/protparam/"},
+                "amino_acid_composition": [{"residue": aa, "name": aa, "count": clean_seq.count(aa), "percent": round(100 * clean_seq.count(aa) / len(clean_seq), 3)} for aa in 'ACDEFGHIKLMNPQRSTVWY']
             }
             
         except Exception as e:
@@ -223,6 +237,35 @@ class ProtParamAnalyzer:
                 "success": False,
                 "error": str(e)
             }
+
+    def _local_fallback(self, sequence, reason):
+        """Calculate core properties locally; never label these as ExPASy data."""
+        analysis = ProteinAnalysis(sequence, monoisotopic=False)
+        params = {
+            'num_amino_acids': len(sequence),
+            'molecular_weight': round(analysis.molecular_weight(), 2),
+            'theoretical_pi': round(analysis.isoelectric_point(), 2),
+            'instability_index': round(analysis.instability_index(), 2),
+            'gravy': round(analysis.gravy(), 3),
+        }
+        text = (f'Number of amino acids: {len(sequence)}\n'
+                f'Molecular weight: {params["molecular_weight"]}\n'
+                f'Theoretical pI: {params["theoretical_pi"]}\n'
+                f'Instability index (II) is computed to be {params["instability_index"]}\n'
+                f'Grand average of hydropathicity (GRAVY): {params["gravy"]}')
+        note = (f'Calculation source: Biopython {biopython_version} (local fallback). '
+                'Values use Biopython reference tables and may differ slightly from ExPASy. '
+                'Additional ExPASy-only report fields are unavailable in this fallback.')
+        return {
+            'success': True, 'sequence_length': len(sequence), 'parameters': params,
+            'markdown': convert_protparam_to_markdown(text) + '\n' + note,
+            'raw_text': text + '\n\n' + note,
+            'source': {'name': 'Biopython ProteinAnalysis', 'version': biopython_version,
+                       'method': 'local_fallback', 'url': 'https://biopython.org/docs/1.86/api/Bio.SeqUtils.ProtParam.html'},
+            'fallback_reason': reason,
+            'amino_acid_composition': [{'residue': aa, 'name': aa, 'count': sequence.count(aa),
+                                      'percent': round(100 * sequence.count(aa) / len(sequence), 3)} for aa in 'ACDEFGHIKLMNPQRSTVWY'],
+        }
     
     def analyze_from_input(self, input_data: str) -> Dict[str, Any]:
         """
@@ -277,10 +320,10 @@ class ProtParamAnalyzer:
                 except:
                     pass
             
-            elif "Instability index" in line:
+            elif "instability index" in line.lower():
                 try:
                     # Format: "Instability index (II) is computed to be 42.08"
-                    match = re.search(r"(\d+\.?\d*)", line.split("be")[-1])
+                    match = re.search(r"([+-]?\d+\.?\d*)", line.split("be")[-1])
                     if match:
                         params["instability_index"] = float(match.group(1))
                 except:

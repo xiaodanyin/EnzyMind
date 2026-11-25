@@ -1,2785 +1,2149 @@
 <template>
-  <div class="agent-page">
-    <!-- Centered Hero Section with Auto-collapse -->
-    <div class="agent-hero" :class="{ 'hero-collapsed': heroCollapsed }" @click="heroCollapsed && expandHero()">
-      <div class="hero-container">
-        <div class="hero-content">
-          <span class="hero-icon">🤖</span>
-          <h1 class="hero-title"><span class="highlight">EnzyMind</span> Agent</h1>
-          <p class="hero-desc" v-show="!heroCollapsed">AI-powered enzyme research assistant with comprehensive analysis capabilities</p>
-          <div class="hero-badges" v-show="!heroCollapsed">
-            <span class="badge">🛠️ 16 Tools</span>
-            <span class="badge">⚡ Real-time</span>
-            <span class="badge">🧠 DeepSeek</span>
-            <span class="badge">🔬 Multi-task</span>
-          </div>
-          <!-- Expand hint when collapsed -->
-          <span class="expand-hint" v-show="heroCollapsed">Click to expand</span>
-        </div>
-        <!-- Collapse/Expand button -->
-        <button class="hero-toggle-btn" @click.stop="toggleHero" :title="heroCollapsed ? 'Expand' : 'Collapse'">
-          <svg v-if="!heroCollapsed" viewBox="0 0 24 24" width="16" height="16">
-            <path fill="currentColor" d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/>
-          </svg>
-          <svg v-else viewBox="0 0 24 24" width="16" height="16">
-            <path fill="currentColor" d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/>
-          </svg>
+  <div ref="workspaceElement" class="agent-workspace" :class="{ 'inspector-open': inspectorOpen, 'is-resizing': dragging }" :style="layoutStyle">
+    <button
+      v-if="sidebarOpen"
+      class="sidebar-backdrop"
+      aria-label="Close conversation menu"
+      @click="sidebarOpen = false"
+    ></button>
+    <aside
+      id="agent-conversations"
+      class="workspace-sidebar"
+      :class="{ 'mobile-open': sidebarOpen }"
+      aria-label="Research conversations"
+    >
+      <div class="workspace-brand">
+        <span class="workspace-mark">E·</span>
+        <div><strong>Research workspace</strong><span>ENZYMIND</span></div>
+      </div>
+      <button
+        class="sidebar-close"
+        @click="sidebarOpen = false"
+        aria-label="Close conversation menu"
+      >
+        ×
+      </button>
+      <button class="new-conversation" @click="newConversation">
+        ＋ New conversation
+      </button>
+      <div class="sidebar-label">
+        CONVERSATIONS
+        <button @click="loadSessions" aria-label="Refresh conversations">
+          ↻
         </button>
       </div>
-    </div>
-
-    <!-- Chat Section -->
-    <section class="chat-section" :class="{ 'chat-maximized': isMaximized }">
-      <div class="section-container" :class="{ 'maximized': isMaximized }">
-        <div class="chat-container" 
-             ref="chatContainer"
-             :style="chatContainerStyle"
-             :class="{ 'maximized': isMaximized }">
-          <!-- Chat Header with Controls -->
-          <div class="chat-header">
-            <div class="chat-title">
-              <span class="chat-icon">🧠</span>
-              <span>EnzyMind Chat</span>
-              <span class="session-badge" title="New session on each refresh">Session: {{ userId.slice(0, 8) }}...</span>
-            </div>
-            <div class="chat-controls">
-              <button class="control-btn" @click="clearHistory" title="Clear chat history">
-                <svg viewBox="0 0 24 24" width="16" height="16">
-                  <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-                </svg>
-              </button>
-              <button class="control-btn" @click="toggleMaximize" :title="isMaximized ? 'Exit fullscreen' : 'Maximize'">
-                <svg v-if="!isMaximized" viewBox="0 0 24 24" width="16" height="16">
-                  <path fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
-                </svg>
-                <svg v-else viewBox="0 0 24 24" width="16" height="16">
-                  <path fill="currentColor" d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/>
-                </svg>
-              </button>
-            </div>
+      <div class="conversation-list">
+        <button
+          v-for="session in sessions"
+          :key="session.id"
+          class="conversation-item"
+          :class="{ active: session.id === sessionId }"
+          @click="selectSession(session.id)"
+        >
+          <span>{{ session.title }}</span
+          ><small>{{ formatDate(session.updated) }}</small>
+        </button>
+        <p v-if="!sessions.length" class="sidebar-empty">
+          Your conversations will be saved here.
+        </p>
+      </div>
+      <div class="sidebar-bottom">
+        <button @click="showLibrary">
+          ▤ Saved results <span>{{ library.length || "" }}</span></button
+        ><router-link to="/help">Getting started ↗</router-link>
+        <details>
+          <summary>Workspace access</summary>
+          <p>
+            Results are private to this browser's workspace. Save your access
+            file to restore them on another browser. Keep it private.
+          </p>
+          <button @click="exportAccess">Export access file</button
+          ><button @click="accessInput.click()">Restore access file</button
+          ><input
+            ref="accessInput"
+            type="file"
+            accept=".json"
+            hidden
+            @change="importAccess"
+          />
+        </details>
+      </div>
+    </aside>
+    <div class="column-resizer sidebar-resizer" role="separator" tabindex="0" aria-orientation="vertical"
+      aria-label="Resize conversations panel" aria-controls="agent-conversations" :aria-valuenow="Math.round(columns.left)"
+      :aria-valuemin="190" :aria-valuemax="Math.round(columns.leftMax)" :aria-valuetext="`${Math.round(columns.left)} pixels`"
+      title="Drag to resize · Arrow keys to adjust · Double-click to reset"
+      @pointerdown="startResize('left', $event)" @keydown="resizeKey('left', $event)" @dblclick="resetWidth('left')"><i></i></div>
+    <section class="conversation-pane" aria-label="Agent conversation">
+      <header class="workspace-topbar">
+        <div>
+          <span class="eyebrow"
+            >RESEARCH /
+            {{ sessionId ? sessionId.slice(0, 8) : "NEW CONVERSATION" }}</span
+          >
+          <h1>{{ currentTitle }}</h1>
+        </div>
+        <div class="topbar-actions">
+          <GuideButton />
+          <button v-if="turns.length" @click="toggleExamples" :aria-expanded="examplesOpen">Examples</button>
+          <button
+            class="mobile-new"
+            @click="sidebarOpen = !sidebarOpen"
+            :aria-expanded="sidebarOpen"
+            aria-label="Open conversations"
+          >
+            ☰</button
+          ><button v-if="sessionId" data-guide="agent-memory" class="memory-indicator" aria-label="Conversation memory" @click="memoryOpen = !memoryOpen" :aria-expanded="memoryOpen"
+            ><i></i><span class="memory-label-full">Conversation memory</span><span class="memory-label-short">Memory</span></button
+          ><button data-guide="agent-results" @click="showLibrary" :aria-expanded="inspectorOpen">
+            Results <span>{{ currentResults.length }}</span></button
+          ><button v-if="turns.length" @click="exportConversation">
+            Export
+          </button>
+        </div>
+      </header>
+      <RetentionNotice compact class="workspace-retention">
+        <button v-if="turns.length" @click="exportConversation">Download conversation</button>
+        <router-link to="/results">Download saved results ↗</router-link>
+      </RetentionNotice>
+      <section v-if="memoryOpen && sessionId" class="memory-panel" aria-label="Conversation memory">
+        <div class="memory-panel-heading"><strong>Research context</strong><span>{{ memoryStatus }}</span><button type="button" class="memory-close" aria-label="Close conversation memory" @click="memoryOpen=false">×</button></div>
+        <dl><div><dt>Original exchanges</dt><dd>{{ turns.filter(t=>t.status === 'completed').length }}</dd></div><div><dt>Summarized exchanges</dt><dd>{{ (memory.summarized_count || 0) / 2 }}</dd></div><div><dt>Saved results</dt><dd>{{ currentResults.length }}</dd></div><div><dt>Last context estimate</dt><dd>{{ memory.context_tokens ? memory.context_tokens.toLocaleString('en-US') + ' tokens' : 'Not yet measured' }}</dd></div></dl>
+        <p>Conversation messages remain saved for 90 days from creation. Older exchanges are summarized when needed within that period. Exact scientific values remain in linked results until their own expiry dates.</p>
+        <p v-if="memory.retention_reset_at">Expired messages were removed on {{ formatDate(memory.retention_reset_at) }}. Conversation memory is rebuilt from the remaining messages.</p>
+        <details v-if="memory.summary"><summary>Read saved summary · revision {{ memory.memory_revision }} · {{ memory.compression_count || 0 }} compression passes</summary><p class="memory-summary">{{ memory.summary }}</p></details>
+        <p v-else>No summary is needed yet.</p>
+      </section>
+      <div v-if="workspaceNotice.message" class="workspace-notice" role="alert">
+        {{ workspaceNotice.message }}
+      </div>
+      <div v-if="legacyHistory" class="workspace-notice">
+        An earlier chat is stored on this browser.
+        <button
+          @click="downloadData(legacyHistory, 'enzymind-previous-chat.json')"
+        >
+          Export previous chat</button
+        ><button
+          @click="legacyHistory = null"
+          aria-label="Dismiss previous chat notice"
+        >
+          ×
+        </button>
+      </div>
+      <div ref="messageList" class="conversation-scroll" @scroll="onScroll">
+        <div v-if="booting" class="loading-state" role="status">
+          Opening your workspace…
+        </div>
+        <div v-else-if="!turns.length" class="workspace-welcome">
+          <div class="welcome-kicker">
+            <span aria-hidden="true">✳</span> FROM QUESTION TO EVIDENCE
           </div>
-          <!-- Chat Messages -->
-          <div class="chat-messages" ref="messagesContainer">
-            <!-- Welcome Message -->
-            <div v-if="messages.length === 0" class="welcome-message">
-              <div class="welcome-icon">🧬</div>
-              <h3>Welcome to EnzyMind Agent!</h3>
-              <p>I'm your AI-powered enzyme research assistant. Ask me anything about:</p>
-              <div class="suggestions">
-                <button class="suggestion-btn" @click="sendSuggestion('What is P00761 and what does it do?')">
-                  🔍 What is P00761?
-                </button>
-                <button class="suggestion-btn" @click="sendSuggestion('Predict the EC number for UniProt ID P12345')">
-                  🏷️ Predict EC number
-                </button>
-                <button class="suggestion-btn" @click="sendSuggestion('Is P06865 an enzyme? If so, predict its active sites.')">
-                  🎯 Predict active sites
-                </button>
-                <button class="suggestion-btn" @click="sendSuggestion('What are the kinetic parameters of P00698?')">
-                  ⚡ Query kinetics
-                </button>
-              </div>
-            </div>
-
-            <!-- Message List -->
-            <template v-for="(msg, idx) in messages" :key="idx">
-              <!-- Session divider between old and new messages -->
-              <div v-if="idx === historyMessageCount && historyMessageCount > 0" class="session-divider">
-                <span class="divider-line"></span>
-                <span class="divider-label">📜 Above: Previous Session (not sent as context)</span>
-                <span class="divider-line"></span>
-              </div>
-              <div 
-                class="message" 
-                :class="[msg.role, { 'history-message': msg.isHistory }]"
-              >
-                <div class="message-avatar">
-                  <span v-if="msg.role === 'user'">👤</span>
-                  <span v-else>🤖</span>
-                </div>
-                <div class="message-content">
-                  <div class="message-header">
-                    <span class="message-sender">{{ msg.role === 'user' ? 'You' : 'EnzyMind' }}</span>
-                    <span class="message-time">{{ formatTime(msg.timestamp) }}</span>
-                    <span v-if="msg.isHistory" class="history-badge">history</span>
-                  </div>
-                  <!-- Segmented Content Display -->
-                  <template v-if="msg.segments && msg.segments.length > 0">
-                    <template v-for="(segment, segIdx) in msg.segments" :key="segIdx">
-                      <!-- Text Segment -->
-                      <div v-if="segment.type === 'text' && segment.content" 
-                         class="message-body segment-text" 
-                         v-html="renderMarkdownText(segment.content)">
-                    </div>
-                    <!-- Tool Call Segment -->
-                    <div v-else-if="segment.type === 'tool'" class="tool-call-segment">
-                      <span class="tool-call-inline"
-                            :class="{ 'tool-running': segment.status === 'running', 'tool-completed': segment.status === 'completed' }">
-                        <span class="tool-icon">⚙</span>
-                        <span class="tool-name">{{ segment.name }}</span>
-                        <span v-if="segment.status === 'running'" class="tool-status running">
-                          <span class="tool-spinner"></span>
-                        </span>
-                        <span v-else class="tool-status completed">
-                          ✓
-                          <span v-if="segment.endTime && segment.startTime" class="tool-duration">
-                            {{ ((segment.endTime - segment.startTime) / 1000).toFixed(1) }}s
-                          </span>
-                        </span>
-                      </span>
-                    </div>
-                  </template>
-                </template>
-                <!-- Fallback for old message format -->
-                <div v-else-if="msg.content" class="message-body" v-html="renderMarkdown(msg)"></div>
-              </div>
-            </div>
-            </template>
-
-            <!-- Loading Indicator -->
-            <div v-if="showTyping" class="message assistant loading">
-              <div class="message-avatar">🤖</div>
-              <div class="message-content">
-                <div class="typing-indicator">
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Chat Input -->
-          <div class="chat-input-container">
-            <!-- File attachment display -->
-            <div v-if="selectedFile" class="file-attachment">
-              <div class="file-info">
-                <span class="file-icon">📄</span>
-                <span class="file-name">{{ selectedFile.name }}</span>
-                <span class="file-size">({{ formatFileSize(selectedFile.size) }})</span>
-              </div>
-              <button class="file-remove" @click="removeFile" title="Remove file">
-                <svg viewBox="0 0 24 24" width="16" height="16">
-                  <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-                </svg>
-              </button>
-            </div>
-            <div class="input-wrapper">
-              <!-- File upload button -->
-              <input
-                type="file"
-                ref="fileInput"
-                @change="handleFileSelect"
-                accept=".fasta,.fa,.fna,.ffn,.faa,.frn"
-                style="display: none"
-              />
-              <button 
-                class="attach-btn" 
-                @click="triggerFileInput"
-                :disabled="loading"
-                title="Attach FASTA file"
-              >
-                <svg viewBox="0 0 24 24" width="20" height="20">
-                  <path fill="currentColor" d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5a2.5 2.5 0 0 1 5 0v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5a2.5 2.5 0 0 0 5 0V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z"/>
-                </svg>
-              </button>
-              <textarea
-                v-model="inputMessage"
-                ref="inputTextarea"
-                placeholder="Ask me anything about enzymes..."
-                @keydown.enter.exact.prevent="sendMessage"
-                @input="autoResize"
-                rows="1"
-                :disabled="loading"
-              ></textarea>
-              <button 
-                class="send-btn" 
-                @click="sendMessage" 
-                :disabled="!inputMessage.trim() || loading"
-              >
-                <svg v-if="!loading" viewBox="0 0 24 24" width="20" height="20">
-                  <path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-                </svg>
-                <div v-else class="btn-loading"></div>
-              </button>
-            </div>
-            <p class="input-hint">Press Enter to send • Shift+Enter for new line • 📎 Attach FASTA file</p>
-          </div>
-          <!-- Resize Handle -->
-          <div v-if="!isMaximized" 
-               class="resize-handle" 
-               @mousedown="startResize"
-               title="Drag to resize">
+          <h2>What would you like<br />to discover?</h2>
+          <p>
+            Start with a protein, a reaction, or a research question.<br />EnzyMind
+            connects the analysis, the evidence, and your next step.
+          </p>
+          <AgentExamples :has-attachments="attachments.length > 0" @use="usePrompt" @library="showLibrary" />
+          <div class="workspace-how">
+            <span><b>1</b> Ask a question</span><i>→</i
+            ><span><b>2</b> Inspect the evidence</span><i>→</i
+            ><span><b>3</b> Refine your analysis</span>
           </div>
         </div>
-
-        <!-- Features Sidebar -->
-        <div class="features-sidebar">
-          <h3 class="sidebar-title">🛠️ Available Tools</h3>
-          
-          <!-- Recognition & Classification -->
-          <div class="tool-category">
-            <h5 class="category-title">🔮 Recognition & Classification</h5>
-            <div class="tool-list">
-              <router-link to="/predict/enzyme" class="tool-item tool-link">
-                <span class="tool-icon">🔍</span>
-                <div class="tool-info">
-                  <h4>Enzyme Recognition</h4>
-                  <p>Identify if a protein is an enzyme using UniProt ID or amino acid sequence</p>
-                </div>
-                <span class="tool-arrow">→</span>
-              </router-link>
-              <router-link to="/predict/ec" class="tool-item tool-link">
-                <span class="tool-icon">🏷️</span>
-                <div class="tool-info">
-                  <h4>EC Number Prediction</h4>
-                  <p>Predict Enzyme Commission classification for proteins</p>
-                </div>
-                <span class="tool-arrow">→</span>
-              </router-link>
-              <router-link to="/predict/recommendation" class="tool-item tool-link">
-                <span class="tool-icon">💡</span>
-                <div class="tool-info">
-                  <h4>Enzyme Recommendation</h4>
-                  <p>Recommend enzyme types (EC) capable of catalyzing specific reactions</p>
-                </div>
-                <span class="tool-arrow">→</span>
-              </router-link>
-            </div>
-          </div>
-
-          <!-- Kinetics Prediction -->
-          <div class="tool-category">
-            <h5 class="category-title">⚗️ Kinetics Prediction</h5>
-            <div class="tool-list">
-              <router-link to="/predict/substrate" class="tool-item tool-link">
-                <span class="tool-icon">⚛️</span>
-                <div class="tool-info">
-                  <h4>Substrate Prediction</h4>
-                  <p>Predict if a small molecule (SMILES) can be a substrate for a specific enzyme</p>
-                </div>
-                <span class="tool-arrow">→</span>
-              </router-link>
-              <router-link to="/predict/kcat" class="tool-item tool-link">
-                <span class="tool-icon">⚡</span>
-                <div class="tool-info">
-                  <h4>Kcat Prediction</h4>
-                  <p>Predict catalytic constant (kcat) for enzyme-substrate pairs</p>
-                </div>
-                <span class="tool-arrow">→</span>
-              </router-link>
-              <router-link to="/predict/km" class="tool-item tool-link">
-                <span class="tool-icon">🎚️</span>
-                <div class="tool-info">
-                  <h4>Km Prediction</h4>
-                  <p>Predict Michaelis constant (Km) for enzyme-substrate interactions</p>
-                </div>
-                <span class="tool-arrow">→</span>
-              </router-link>
-            </div>
-          </div>
-
-          <!-- Active Sites & Structure -->
-          <div class="tool-category">
-            <h5 class="category-title">🧪 Active Sites & Features</h5>
-            <div class="tool-list">
-              <router-link to="/predict/activesite" class="tool-item tool-link">
-                <span class="tool-icon">🎯</span>
-                <div class="tool-info">
-                  <h4>Active Site Prediction</h4>
-                  <p>Predict active sites and binding residues using EasIFA with confidence scores</p>
-                </div>
-                <span class="tool-arrow">→</span>
-              </router-link>
-              <div class="tool-item">
-                <span class="tool-icon">📍</span>
-                <div class="tool-info">
-                  <h4>Functional Features</h4>
-                  <p>Retrieve functional sites (Active, Binding, Metal binding) from UniProt</p>
-                </div>
+        <div v-else class="turn-list">
+          <AgentExamples v-if="examplesOpen" :has-attachments="attachments.length > 0" @use="usePrompt" @library="showLibrary" />
+          <article v-for="turn in turns" :key="turn.id" class="research-turn">
+            <div class="user-turn">
+              <div class="message-byline">
+                YOU <time>{{ formatTime(turn.created) }}</time>
+                <ExpiryBadge :expires-at="resultExpiry(turn)" />
+              </div>
+              <p v-if="turn.message.length < 1400">{{ turn.message }}</p>
+              <details v-else>
+                <summary>{{ turn.message.slice(0, 160) }}…</summary>
+                <pre>{{ turn.message }}</pre>
+              </details>
+              <div v-if="turn.references.length" class="inline-references">
+                <button
+                  v-for="id in turn.references"
+                  :key="id"
+                  @click="inspectResult(id)"
+                >
+                  ▤ {{ resultTitle(id) }} ↗
+                </button>
               </div>
             </div>
-          </div>
-
-          <!-- Database Queries -->
-          <div class="tool-category">
-            <h5 class="category-title">📚 Database Queries</h5>
-            <div class="tool-list">
-              <router-link to="/utility/enzyme-info" class="tool-item tool-link">
-                <span class="tool-icon">📖</span>
-                <div class="tool-info">
-                  <h4>Enzyme Information</h4>
-                  <p>Get comprehensive enzyme info including sequence, kinetics, sites, and reactions</p>
-                </div>
-                <span class="tool-arrow">→</span>
-              </router-link>
-              <div class="tool-item">
-                <span class="tool-icon">📈</span>
-                <div class="tool-info">
-                  <h4>Kinetics Query</h4>
-                  <p>Retrieve known experimental kinetic parameters (Km, Vmax, kcat) from BRENDA</p>
-                </div>
+            <div class="assistant-turn">
+              <div class="message-byline">
+                <span class="assistant-mark">E·</span> ENZYMIND
+                <span
+                  v-if="['running', 'queued'].includes(turn.status)"
+                  class="live-label"
+                  >{{ turn.partial_output ? 'Streaming' : 'Working' }}</span
+                >
               </div>
-              <div class="tool-item">
-                <span class="tool-icon">⚙️</span>
-                <div class="tool-info">
-                  <h4>Function Query</h4>
-                  <p>Get functional annotations, protein names, organism and gene information</p>
-                </div>
+              <details
+                v-if="toolEvents(turn).length"
+                class="tool-timeline"
+                :open="['running', 'queued'].includes(turn.status)"
+              >
+                <summary>
+                  Analysis steps <span>{{ toolEvents(turn).length }}</span>
+                </summary>
+                <button
+                  v-for="(step, i) in toolEvents(turn)"
+                  :key="i"
+                  :disabled="!step.result_id"
+                  @click="inspectResult(step.result_id)"
+                >
+                  <span :class="['step-status', step.status]">{{
+                    step.status === "completed"
+                      ? "✓"
+                      : step.status === "failed"
+                        ? "!"
+                        : step.status === "running"
+                          ? "◌"
+                          : "—"
+                  }}</span
+                  ><span>{{ step.label }}</span
+                  ><small>{{
+                    step.status === "completed"
+                      ? `${step.duration.toFixed(1)} s`
+                      : step.status
+                  }}</small
+                  ><span v-if="step.result_id">↗</span>
+                </button>
+              </details>
+              <div
+                v-if="turn.output || turn.partial_output"
+                class="agent-markdown"
+                :aria-busy="['queued', 'running'].includes(turn.status)"
+                v-html="renderMarkdown(turn.output || turn.partial_output)"
+                @click="handleCitation"
+              ></div>
+              <div
+                v-else-if="['queued', 'running'].includes(turn.status)"
+                class="working-status"
+                role="status"
+              >
+                <span class="working-dot"></span>{{ latestStatus(turn) }}
               </div>
-              <div class="tool-item">
-                <span class="tool-icon">🧫</span>
-                <div class="tool-info">
-                  <h4>Catalytic Activity</h4>
-                  <p>Retrieve known catalytic activities and chemical reaction descriptions</p>
-                </div>
+              <p v-if="turn.partial_output && !['queued', 'running', 'completed'].includes(turn.status)" class="partial-notice">Partial response · generation did not finish. This text was not added to conversation memory.</p>
+              <p v-if="contextWarning(turn)" class="context-notice" role="status">{{ contextWarning(turn) }}</p>
+              <div v-if="turn.error" class="turn-error" role="alert">
+                <strong>{{
+                  turn.status === "cancelled"
+                    ? "Analysis stopped"
+                    : "Analysis needs attention"
+                }}</strong>
+                <p>{{ turn.error }}</p>
+                <button v-if="!running" @click="reuseTurn(turn)">
+                  Use this question again
+                </button>
+              </div>
+              <div v-if="turnResultIds(turn).length" class="answer-results">
+                <span class="eyebrow">RESULTS &amp; EVIDENCE</span
+                ><button
+                  v-for="id in turnResultIds(turn)"
+                  :key="id"
+                  @click="inspectResult(id)"
+                >
+                  <span>▤</span><span>{{ resultTitle(id) }}</span
+                  ><span>Inspect ↗</span>
+                </button>
               </div>
             </div>
-          </div>
-
-          <!-- Utility Tools -->
-          <div class="tool-category">
-            <h5 class="category-title">🛠️ Utility Tools</h5>
-            <div class="tool-list">
-              <router-link to="/utility/alignment" class="tool-item tool-link">
-                <span class="tool-icon">🔗</span>
-                <div class="tool-info">
-                  <h4>Sequence Alignment</h4>
-                  <p>Find similar protein sequences and homologs using BLAST</p>
-                </div>
-                <span class="tool-arrow">→</span>
-              </router-link>
-              <router-link to="/utility/parameters" class="tool-item tool-link">
-                <span class="tool-icon">📊</span>
-                <div class="tool-info">
-                  <h4>Sequence Parameters</h4>
-                  <p>Compute physicochemical parameters (MW, pI, Instability Index)</p>
-                </div>
-                <span class="tool-arrow">→</span>
-              </router-link>
-              <div class="tool-item">
-                <span class="tool-icon">📋</span>
-                <div class="tool-info">
-                  <h4>Sequence Info</h4>
-                  <p>Retrieve amino acid sequence, length, and molecular weight</p>
-                </div>
-              </div>
+          </article>
+        </div>
+      </div>
+      <div class="composer-area">
+        <div v-if="error" class="composer-error" role="alert">
+          {{ error }}
+          <button @click="error = ''" aria-label="Dismiss error">×</button>
+        </div>
+        <div v-if="attachments.length || file" class="composer-attachments">
+          <button
+            v-for="item in attachments"
+            :key="item.id"
+            @click="removeAttachment(item.id)"
+            :title="`Remove ${item.title}`"
+          >
+            ▤ {{ item.title }} <span>×</span></button
+          ><button v-if="file" @click="file = null">
+            FASTA · {{ file.name }} <span>×</span>
+          </button>
+        </div>
+        <div class="agent-billing" aria-label="Daily Agent allowance">
+          <span v-if="deepseekKey" class="billing-personal">Using your DeepSeek key</span>
+          <span v-else-if="quota" :title="`Resets at ${quota.resets_at} (${quota.timezone}). New conversations share this allowance.`"><strong>{{ quota.remaining }} / {{ quota.limit }}</strong> free turns left today <small>· resets at midnight, {{ quota.timezone }}</small></span>
+          <span v-else>{{ quotaError || 'Checking daily allowance…' }}</span>
+          <button v-if="deepseekKey" type="button" @click="forgetKey">Forget key</button>
+          <button v-else type="button" @click="keyDialogOpen=true">Use my DeepSeek key</button>
+        </div>
+        <form class="message-composer" @submit.prevent="send">
+          <label class="sr-only" for="research-message">Research question</label
+          ><textarea
+            id="research-message"
+            ref="composer"
+            v-model="draft"
+            rows="3"
+            maxlength="24000"
+            :placeholder="
+              attachments.length
+                ? 'Ask about the attached results…'
+                : 'Ask about an enzyme, paste a UniProt ID, or describe your research goal…'
+            "
+            @keydown="onKeydown"
+          ></textarea>
+          <div class="composer-toolbar">
+            <div>
+              <button
+                type="button"
+                @click="fileInput.click()"
+                :disabled="running"
+              >
+                ＋ Protein file</button
+              ><button type="button" @click="showLibrary">
+                ▤ Reference a result</button
+              ><input
+                ref="fileInput"
+                type="file"
+                accept=".fasta,.fa,.faa,.txt"
+                hidden
+                @change="attachFile"
+              />
             </div>
+            <button
+              v-if="running"
+              type="button"
+              class="stop-button"
+              @click="stop"
+              :disabled="stopping"
+            >
+              ■ {{ stopping ? "Stopping…" : "Stop analysis" }}</button
+            ><button
+              v-else
+              class="send-button"
+              type="submit"
+              :disabled="sending || !draft.trim()"
+            >
+              {{ sending ? "Starting…" : limitReached && !deepseekKey ? "Add DeepSeek key" : "Send question" }} <span>↑</span>
+            </button>
           </div>
-
-          <div class="tech-stack">
-            <h4 class="stack-title">Powered By</h4>
-            <div class="stack-items">
-              <span class="stack-item">🦜 n8n</span>
-              <span class="stack-item">🧠 DeepSeek</span>
-              <span class="stack-item">⚡ FastAPI</span>
-            </div>
-          </div>
+        </form>
+        <div class="composer-footnote">
+          <span>Enter to send · Shift + Enter for a new line</span
+          ><span>Predictions require scientific interpretation.</span>
         </div>
       </div>
     </section>
+    <DeepSeekKeyDialog v-if="keyDialogOpen" :limit="quota?.limit || 10" @close="keyDialogOpen=false" @use-key="useKey" />
+    <div v-if="inspectorOpen" class="column-resizer inspector-resizer" role="separator" tabindex="0" aria-orientation="vertical"
+      aria-label="Resize results panel" aria-controls="agent-results-panel" :aria-valuenow="Math.round(columns.right)"
+      :aria-valuemin="320" :aria-valuemax="Math.round(columns.rightMax)" :aria-valuetext="`${Math.round(columns.right)} pixels`"
+      title="Drag to resize · Arrow keys to adjust · Double-click to reset"
+      @pointerdown="startResize('right', $event)" @keydown="resizeKey('right', $event)" @dblclick="resetWidth('right')"><i></i></div>
+    <aside
+      id="agent-results-panel"
+      v-if="inspectorOpen"
+      class="result-inspector"
+      aria-label="Results inspector"
+    >
+      <header>
+        <div>
+          <span class="eyebrow">EVIDENCE PANEL</span>
+          <h2>{{ inspected ? "Result details" : "Saved results" }}</h2>
+        </div>
+        <button
+          @click="inspectorOpen = false"
+          aria-label="Close result inspector"
+        >
+          ×
+        </button>
+      </header>
+      <div class="inspector-scroll">
+        <p v-if="inspecting" role="status">Loading result…</p>
+        <p v-if="inspectorError" class="composer-error" role="alert">
+          {{ inspectorError }}
+        </p>
+        <template v-if="inspected"
+          ><div class="inspector-navigation">
+            <button @click="inspected = null">← Result library</button
+            ><button @click="attachResult(inspected)">
+              ＋ Add to question
+            </button>
+          </div>
+          <ResearchResult
+            :record="inspected"
+            @updated="updateInspectedResult"
+            embedded
+            @reference="inspectResult"
+            @attach="attachResult"
+        /></template>
+        <template v-else
+          ><label class="library-search"
+            >Find a saved analysis<input
+              v-model="resultSearch"
+              type="search"
+              placeholder="Protein, task, or result ID"
+          /></label>
+          <p class="library-help">
+            Open a result to inspect it, or attach it to your next question.
+            Results from individual tools appear here too.
+          </p>
+          <div class="library-tabs">
+            <button
+              :class="{ active: libraryScope === 'all' }"
+              @click="libraryScope = 'all'"
+            >
+              All results</button
+            ><button
+              :class="{ active: libraryScope === 'conversation' }"
+              @click="libraryScope = 'conversation'"
+            >
+              This conversation
+            </button>
+          </div>
+          <div v-if="!filteredLibrary.length" class="inspector-empty">
+            <span>▤</span><strong>No results yet</strong>
+            <p>
+              {{
+                resultSearch
+                  ? "Try a different search."
+                  : "Run an analysis to build your evidence collection."
+              }}
+            </p>
+            <router-link to="/predict/enzyme"
+              >Explore analysis tools →</router-link
+            >
+          </div>
+          <article
+            v-for="item in filteredLibrary"
+            :key="item.id"
+            class="library-card"
+          >
+            <span class="eyebrow">{{ evidenceLabel(item) }}</span
+            ><button class="library-card-title" @click="inspectResult(item.id)">
+              {{ item.title }} ↗
+            </button>
+            <p>{{ inputLabel(item.inputs) }}</p>
+            <ExpiryBadge :expires-at="resultExpiry(item)" />
+            <footer>
+              <span :class="item.status"
+                >{{ item.status }} · {{ formatDate(item.created) }}</span
+              ><button
+                @click="attachResult(item)"
+                :disabled="attachments.some((a) => a.id === item.id)"
+              >
+                {{
+                  attachments.some((a) => a.id === item.id)
+                    ? "Attached"
+                    : "＋ Attach"
+                }}
+              </button>
+            </footer>
+          </article></template
+        >
+      </div>
+    </aside>
   </div>
 </template>
-
 <script setup>
-import { ref, nextTick, onMounted, computed, watch } from 'vue'
-import { marked } from 'marked'
-
-// n8n Webhook configuration - 通过 Gateway 转发
-const N8N_WEBHOOK_URL = '/enzymind/api/agent/chat'
-
-const messages = ref([])
-const inputMessage = ref('')
-const loading = ref(false)
-const showTyping = ref(false)
-const messagesContainer = ref(null)
-const inputTextarea = ref(null)
-const fileInput = ref(null)
-const selectedFile = ref(null)
-const userId = ref('')
-const chatContainer = ref(null)
-const isMaximized = ref(false)
-const chatHeight = ref(null)  // null means use default (same as sidebar)
-const isResizing = ref(false)
-const historyMessageCount = ref(0)  // Number of messages loaded from history
-const heroCollapsed = ref(false)  // Hero section collapse state
-let heroAutoCollapseTimer = null  // Timer for auto-collapse
-
-// Toggle hero collapse state
-const toggleHero = () => {
-  heroCollapsed.value = !heroCollapsed.value
-  // Clear auto-collapse timer if user manually toggles
-  if (heroAutoCollapseTimer) {
-    clearTimeout(heroAutoCollapseTimer)
-    heroAutoCollapseTimer = null
-  }
+import {
+  ref,
+  computed,
+  watch,
+  nextTick,
+  onMounted,
+  onBeforeUnmount,
+} from "vue";
+import { useRoute, useRouter } from "vue-router";
+import ResearchResult from "@/components/common/ResearchResult.vue";
+import AgentExamples from "@/components/common/AgentExamples.vue";
+import RetentionNotice from '@/components/common/RetentionNotice.vue';
+import GuideButton from '@/components/common/GuideButton.vue';
+import ExpiryBadge from '@/components/common/ExpiryBadge.vue';
+import DeepSeekKeyDialog from '@/components/common/DeepSeekKeyDialog.vue';
+import { useAgentLayout } from '@/utils/agentLayout';
+import { resultExpiry } from '@/utils/retention';
+import {
+  workspaceFetch,
+  postWorkspace,
+  downloadData,
+  workspaceNotice,
+  exportAccess,
+  restoreAccess,
+  newRequestId,
+  streamWorkspaceTurn,
+} from "@/utils/workspace";
+import { renderMarkdown } from "@/utils/markdown";
+import { resultReference, evidenceLabel } from "@/utils/resultData";
+const route = useRoute(),
+  router = useRouter();
+const sessions = ref([]),
+  sessionId = ref(""),
+  turns = ref([]),
+  currentResults = ref([]),
+  library = ref([]);
+const memory = ref({}), memoryOpen = ref(false), examplesOpen = ref(false);
+const quota=ref(null), quotaError=ref(''), deepseekKey=ref(''), keyDialogOpen=ref(false);
+const limitReached=computed(()=>quota.value?.remaining === 0);
+async function loadUsage(){
+  try{const data=await workspaceFetch('/usage');if(Number.isInteger(data.limit)&&Number.isInteger(data.remaining)){quota.value=data;quotaError.value='';}}
+  catch{quotaError.value='Daily allowance unavailable. Retry when sending.';}
 }
-
-// Expand hero (used when clicking collapsed hero)
-const expandHero = () => {
-  heroCollapsed.value = false
-  // Reset auto-collapse timer
-  if (heroAutoCollapseTimer) {
-    clearTimeout(heroAutoCollapseTimer)
-  }
-  heroAutoCollapseTimer = setTimeout(() => {
-    heroCollapsed.value = true
-  }, 10000)
+function useKey(value){deepseekKey.value=value;keyDialogOpen.value=false;error.value='';composer.value?.focus();}
+function forgetKey(){deepseekKey.value='';void loadUsage();}
+const memoryStatus = computed(() => {
+  const last = turns.value.at(-1);
+  if (last && ['running','queued'].includes(last.status)) return [...(last.events || [])].reverse().find(e=>e.kind==='memory')?.data.label || 'Preparing context';
+  return 'Saved on this workspace';
+});
+const draft = ref(""),
+  attachments = ref([]),
+  file = ref(null),
+  error = ref(""),
+  booting = ref(true),
+  sending = ref(false),
+  stopping = ref(false);
+const composer = ref(null),
+  messageList = ref(null),
+  fileInput = ref(null),
+  accessInput = ref(null),
+  legacyHistory = ref(null);
+const inspectorOpen = ref(false),
+  sidebarOpen = ref(false),
+  inspected = ref(null),
+  inspecting = ref(false),
+  inspectorError = ref(""),
+  resultSearch = ref(""),
+  libraryScope = ref("all");
+const workspaceElement = ref(null);
+const { columns, style: layoutStyle, dragging, start: startResize, key: resizeKey, reset: resetWidth } = useAgentLayout(workspaceElement, inspectorOpen);
+let pollTimer,
+  streamController,
+  sessionVersion = 0,
+  inspectVersion = 0,
+  unmounted = false,
+  followBottom = true,
+  pendingRequest = null;
+const running = computed(() =>
+  turns.value.some((t) => ["running", "queued"].includes(t.status)),
+);
+const currentTitle = computed(
+  () =>
+    sessions.value.find((s) => s.id === sessionId.value)?.title ||
+    "Research with EnzyMind",
+);
+const filteredLibrary = computed(() =>
+  (libraryScope.value === "conversation"
+    ? currentResults.value
+    : library.value
+  ).filter((r) =>
+    JSON.stringify([r.title, r.inputs, r.id])
+      .toLowerCase()
+      .includes(resultSearch.value.toLowerCase()),
+  ),
+);
+const formatDate = (t) =>
+  new Date(t * 1000).toLocaleDateString('en-US', {
+    month: "short",
+    day: "numeric",
+  });
+const formatTime = (t) =>
+  new Date(t * 1000).toLocaleTimeString('en-US', {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+const inputLabel = (input) =>
+  String(
+    input?.uniprot_id ||
+      input?.query ||
+      input?.enzyme_query ||
+      input?.aa_sequence ||
+      "Saved analysis",
+  ).slice(0, 75);
+const resultTitle = (id) =>
+  [...currentResults.value, ...library.value].find((r) => r.id === id)?.title ||
+  `Result ${id.slice(0, 8)}`;
+function updateInspectedResult(record) {
+  inspected.value = record;
+  currentResults.value = currentResults.value.map(r => r.id === record.id ? {...r, status:record.status} : r);
+  library.value = library.value.map(r => r.id === record.id ? {...r, status:record.status} : r);
 }
-
-// LocalStorage key for chat history
-const CHAT_HISTORY_KEY = 'enzymind_chat_history'
-
-// Computed style for chat container
-const chatContainerStyle = computed(() => {
-  if (isMaximized.value) return {}
-  // If chatHeight is set (user resized), use it; otherwise use auto (CSS will handle)
-  if (chatHeight.value !== null) {
-    return {
-      height: `${chatHeight.value}px`,
-      minHeight: '300px',
-      maxHeight: 'calc(100vh - 250px)'
+function toolEvents(turn) {
+  const steps = [];
+  for (const event of turn.events || []) {
+    if (event.kind === "tool_start")
+      steps.push({
+        ...event.data,
+        status: ["running", "queued"].includes(turn.status)
+          ? "running"
+          : "interrupted",
+      });
+    if (event.kind === "tool_end") {
+      const step = [...steps]
+        .reverse()
+        .find((s) => s.tool === event.data.tool && !s.result_id);
+      if (step) Object.assign(step, event.data);
+      else steps.push(event.data);
     }
   }
-  // Default: match sidebar height via CSS
-  return {}
-})
-
-// Save messages to localStorage
-const saveToLocalStorage = () => {
+  return steps.map(step => {
+    const saved = [...currentResults.value, ...library.value].find(r => r.id === step.result_id);
+    return saved && ['submitting', 'queued', 'paused'].includes(step.status) ? {...step, status:saved.status} : step;
+  });
+}
+function turnResultIds(turn) {
+  return [
+    ...new Set(
+      (turn.events || []).flatMap((e) =>
+        e.kind === "tool_end"
+          ? e.data.result_id
+            ? [e.data.result_id]
+            : []
+          : e.kind === "references"
+            ? e.data.results.map((r) => r.id)
+            : [],
+      ),
+    ),
+  ];
+}
+const latestStatus = (turn) =>
+  [...(turn.events || [])].reverse().find((e) => ["status", "memory", "tool_start", "tool_end"].includes(e.kind))?.data
+    .label || "Starting analysis…";
+const contextWarning = (turn) =>
+  [...(turn.events || [])].reverse().find(e => e.kind === "memory" && e.data.warning)?.data.warning || "";
+function rememberSession() {
   try {
-    const historyData = messages.value.map(msg => ({
-      role: msg.role,
-      content: msg.content,
-      timestamp: msg.timestamp instanceof Date ? msg.timestamp.toISOString() : msg.timestamp,
-      segments: msg.segments
-    }))
-    localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(historyData))
+    localStorage.setItem("enzymind_workspace_session_v2", sessionId.value);
+  } catch {}
+}
+async function loadSessions() {
+  try {
+    sessions.value = (await workspaceFetch("/sessions")).sessions;
   } catch (e) {
-    console.warn('Failed to save chat history:', e)
+    error.value = e.message;
   }
 }
-
-// Load messages from localStorage
-const loadFromLocalStorage = () => {
+async function loadLibrary() {
+  const data = await workspaceFetch("/results");
+  library.value = data.results;
+}
+async function selectSession(id) {
+  if (sending.value) return;
+  sidebarOpen.value = false;
+  const version = ++sessionVersion;
+  disconnectStream();
+  clearTimeout(pollTimer);
+  error.value = "";
+  booting.value = true;
   try {
-    const saved = localStorage.getItem(CHAT_HISTORY_KEY)
-    if (saved) {
-      const historyData = JSON.parse(saved)
-      messages.value = historyData.map(msg => ({
-        ...msg,
-        timestamp: new Date(msg.timestamp),
-        isHistory: true  // Mark as history message
-      }))
-      historyMessageCount.value = messages.value.length
-    }
+    const data = await workspaceFetch(`/sessions/${id}`);
+    if (version !== sessionVersion || unmounted) return;
+    sessionId.value = id;
+    memory.value = data;
+    turns.value = data.turns;
+    currentResults.value = data.results;
+    rememberSession();
+    followBottom = true;
+    await scrollBottom();
+    schedulePoll();
   } catch (e) {
-    console.warn('Failed to load chat history:', e)
-  }
-}
-
-// Clear chat history
-const clearHistory = () => {
-  if (confirm('Clear all chat history? This cannot be undone.')) {
-    messages.value = []
-    historyMessageCount.value = 0
-    localStorage.removeItem(CHAT_HISTORY_KEY)
-  }
-}
-
-// Toggle maximize
-const toggleMaximize = () => {
-  isMaximized.value = !isMaximized.value
-  nextTick(() => scrollToBottom())
-}
-
-// Resize functionality
-const startResize = (e) => {
-  e.preventDefault()
-  e.stopPropagation()
-  
-  isResizing.value = true
-  const startY = e.clientY
-  // Get current actual height from element if chatHeight is null
-  const startHeight = chatHeight.value ?? chatContainer.value?.offsetHeight ?? 500
-  let rafId = null
-  
-  const onMouseMove = (moveEvent) => {
-    moveEvent.preventDefault()
-    if (rafId) return  // Throttle with RAF
-    
-    rafId = requestAnimationFrame(() => {
-      const deltaY = moveEvent.clientY - startY
-      const newHeight = Math.max(300, Math.min(startHeight + deltaY, window.innerHeight - 250))
-      chatHeight.value = newHeight
-      rafId = null
-    })
-  }
-  
-  const onMouseUp = (upEvent) => {
-    upEvent.preventDefault()
-    isResizing.value = false
-    if (rafId) {
-      cancelAnimationFrame(rafId)
-    }
-    document.removeEventListener('mousemove', onMouseMove)
-    document.removeEventListener('mouseup', onMouseUp)
-    document.body.style.cursor = ''
-    document.body.style.userSelect = ''
-    // Save height preference
-    try {
-      localStorage.setItem('enzymind_chat_height', String(chatHeight.value))
-    } catch (e) {}
-  }
-  
-  // Prevent text selection and set cursor globally during resize
-  document.body.style.cursor = 'ns-resize'
-  document.body.style.userSelect = 'none'
-  
-  document.addEventListener('mousemove', onMouseMove)
-  document.addEventListener('mouseup', onMouseUp)
-}
-
-// Generate unique session ID
-const generateUserId = () => {
-  // Use crypto.randomUUID if available, otherwise fallback to timestamp + random
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return crypto.randomUUID()
-  }
-  return `user-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
-}
-
-// Initialize userId on component mount
-onMounted(() => {
-  // Generate new userId for each session (refresh)
-  userId.value = generateUserId()
-  console.log('New session userId:', userId.value)
-  
-  // Load chat history from localStorage (but don't send to backend)
-  loadFromLocalStorage()
-  
-  // Load saved height preference (null = use default)
-  try {
-    const savedHeight = localStorage.getItem('enzymind_chat_height')
-    if (savedHeight) {
-      chatHeight.value = parseInt(savedHeight, 10)
-    }
-  } catch (e) {}
-  
-  // Auto-collapse hero after 10 seconds
-  heroAutoCollapseTimer = setTimeout(() => {
-    heroCollapsed.value = true
-  }, 10000)
-  
-  // Scroll to bottom after loading history
-  nextTick(() => scrollToBottom())
-})
-
-// Watch messages and save to localStorage
-watch(messages, () => {
-  saveToLocalStorage()
-}, { deep: true })
-
-// Format timestamp
-const formatTime = (timestamp) => {
-  return new Date(timestamp).toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit'
-  })
-}
-
-const markdownCache = new WeakMap()
-
-// Render markdown content (cache per message to avoid re-parsing unchanged content)
-const renderMarkdown = (message) => {
-  const content = typeof message === 'string' ? message : message?.content
-  if (!content) return ''
-
-  if (message && typeof message === 'object') {
-    const cached = markdownCache.get(message)
-    if (cached && cached.content === content) {
-      return cached.html
-    }
-    const html = marked(content, {
-      breaks: true,
-      gfm: true
-    })
-    markdownCache.set(message, { content, html })
-    return html
-  }
-
-  return marked(content, {
-    breaks: true,
-    gfm: true
-  })
-}
-
-// Render markdown from plain text string
-const renderMarkdownText = (text) => {
-  if (!text) return ''
-  // Pre-process: format [Used tools: ...] blocks
-  const processedText = formatToolUsageBlocks(text)
-  return marked(processedText, {
-    breaks: true,
-    gfm: true
-  })
-}
-
-// Format [Used tools: Tool: xxx, Input: {}, Result: [...]] blocks
-const formatToolUsageBlocks = (text) => {
-  if (!text) return text
-  
-  // Match [Used tools: ...] pattern
-  const toolBlockRegex = /\[Used tools:\s*Tool:\s*([^,]+),\s*Input:\s*(\{[^}]*\}),\s*Result:\s*(\[[\s\S]*?\])\]/g
-  
-  return text.replace(toolBlockRegex, (match, toolName, input, resultStr) => {
-    try {
-      // Parse the result JSON
-      const results = JSON.parse(resultStr)
-      
-      // Format output
-      let formattedOutput = `\n\n<div class="tool-result-block">\n`
-      formattedOutput += `<div class="tool-result-header">⚙️ <strong>${toolName.trim()}</strong></div>\n`
-      
-      if (results && results.length > 0) {
-        const result = results[0]
-        if (result.result) {
-          // The result contains markdown-like content, render it
-          formattedOutput += `<div class="tool-result-content">\n\n${result.result}\n\n</div>\n`
-        } else if (result.error) {
-          formattedOutput += `<div class="tool-result-error">❌ Error: ${result.error}</div>\n`
-        } else {
-          // Generic JSON display
-          formattedOutput += `<div class="tool-result-content"><pre>${JSON.stringify(result, null, 2)}</pre></div>\n`
-        }
-      }
-      
-      formattedOutput += `</div>\n\n`
-      return formattedOutput
-    } catch (e) {
-      // If parsing fails, return original with basic formatting
-      return `\n\n> **⚙️ Tool Used:** ${toolName.trim()}\n\n`
-    }
-  })
-}
-
-// Auto-resize textarea
-const autoResize = () => {
-  const textarea = inputTextarea.value
-  if (textarea) {
-    textarea.style.height = 'auto'
-    textarea.style.height = Math.min(textarea.scrollHeight, 150) + 'px'
-  }
-}
-
-// Scroll to bottom of messages
-const scrollToBottom = async () => {
-  await nextTick()
-  if (messagesContainer.value) {
-    messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
-  }
-}
-
-// Send suggestion
-const sendSuggestion = (text) => {
-  inputMessage.value = text
-  sendMessage()
-}
-
-// File handling functions
-const triggerFileInput = () => {
-  if (fileInput.value) {
-    fileInput.value.click()
-  }
-}
-
-const handleFileSelect = (event) => {
-  const file = event.target.files[0]
-  if (file) {
-    // Validate file type
-    const validExtensions = ['.fasta', '.fa', '.fna', '.ffn', '.faa', '.frn']
-    const fileName = file.name.toLowerCase()
-    const isValid = validExtensions.some(ext => fileName.endsWith(ext))
-    
-    if (!isValid) {
-      alert('Please select a valid FASTA file (.fasta, .fa, .fna, .ffn, .faa, .frn)')
-      return
-    }
-    
-    selectedFile.value = file
-  }
-}
-
-const removeFile = () => {
-  selectedFile.value = null
-  if (fileInput.value) {
-    fileInput.value.value = ''
-  }
-}
-
-const formatFileSize = (bytes) => {
-  if (bytes === 0) return '0 Bytes'
-  const k = 1024
-  const sizes = ['Bytes', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-}
-
-// Parse n8n streaming response and extract text content
-const parseN8nStreamChunk = (jsonStr) => {
-  try {
-    const data = JSON.parse(jsonStr)
-    // Return structured data for different message types
-    if (data.type === 'begin') {
-      return { type: 'begin', metadata: data.metadata }
-    }
-    if (data.type === 'end') {
-      return { type: 'end', metadata: data.metadata }
-    }
-    // n8n streaming format: {"type":"item","content":"actual content"}
-    if (data.type === 'item' && typeof data.content === 'string') {
-      return { type: 'content', content: data.content }
-    }
-    // Also handle other possible formats
-    if (data.type === 'text' && data.text) {
-      return { type: 'content', content: data.text }
-    }
-    if (data.type === 'message' && data.message) {
-      return { type: 'content', content: data.message }
-    }
-    // Handle delta content format
-    if (data.type === 'delta' && data.delta?.content) {
-      return { type: 'content', content: data.delta.content }
-    }
-    return null
-  } catch {
-    // Not valid JSON, might be plain text
-    return null
-  }
-}
-
-// Send message to n8n webhook
-const sendMessage = async () => {
-  const message = inputMessage.value.trim()
-  if (!message || loading.value) return
-
-  // Build user message content (include file info if attached)
-  let userMessageContent = message
-  if (selectedFile.value) {
-    userMessageContent = `${message}\n\n📎 **Attached file:** ${selectedFile.value.name}`
-  }
-
-  // Add user message
-  messages.value.push({
-    role: 'user',
-    content: userMessageContent,
-    timestamp: new Date()
-  })
-  
-  // Store file reference before clearing
-  const fileToSend = selectedFile.value
-  
-  inputMessage.value = ''
-  selectedFile.value = null
-  if (fileInput.value) {
-    fileInput.value.value = ''
-  }
-  if (inputTextarea.value) {
-    inputTextarea.value.style.height = 'auto'
-  }
-  
-  loading.value = true
-  showTyping.value = true
-  await scrollToBottom()
-
-  // 在 try 外部声明，以便 catch 块可以访问
-  let messageIndex = -1
-
-  try {
-    let response
-    
-    if (fileToSend) {
-      // Use FormData for file upload (multipart/form-data)
-      const formData = new FormData()
-      formData.append('message', message)
-      formData.append('userID', userId.value)
-      formData.append('data', fileToSend)
-      
-      response = await fetch(N8N_WEBHOOK_URL, {
-        method: 'POST',
-        body: formData
-        // Note: Don't set Content-Type header, browser will set it with boundary
-      })
-    } else {
-      // Use JSON for text-only messages
-      response = await fetch(N8N_WEBHOOK_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          message: message,
-          userID: userId.value
-        })
-      })
-    }
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-    
-    // 收到响应后关闭 typing indicator，准备显示助手消息
-    showTyping.value = false
-    
-    const assistantMessage = {
-      role: 'assistant',
-      content: '',  // 保留用于兼容性
-      timestamp: new Date(),
-      segments: [{ type: 'text', content: '' }],  // 分段显示内容
-      isCallingTool: false  // 是否正在调用工具
-    }
-    messages.value.push(assistantMessage)
-    // 获取数组中的响应式引用
-    messageIndex = messages.value.length - 1
-
-    const reader = response.body?.getReader()
-    const decoder = new TextDecoder('utf-8')
-    let hasContent = false
-    let buffer = ''  // Buffer for incomplete lines
-    let toolCallCount = 0  // 工具调用计数
-
-    // 获取当前文本段落（最后一个 text 类型的段落）
-    const getCurrentTextSegment = () => {
-      const segments = messages.value[messageIndex].segments
-      const lastSegment = segments[segments.length - 1]
-      if (lastSegment && lastSegment.type === 'text') {
-        return lastSegment
-      }
-      // 如果最后一个不是 text，创建新的 text 段落
-      const newTextSegment = { type: 'text', content: '' }
-      segments.push(newTextSegment)
-      return newTextSegment
-    }
-
-    const updateContent = (text) => {
-      if (!text) return
-      hasContent = true
-      // 向当前文本段落追加内容
-      const textSegment = getCurrentTextSegment()
-      textSegment.content += text
-      // 同时更新 content 用于兼容性
-      messages.value[messageIndex].content += text
-      // 强制响应式更新
-      messages.value = [...messages.value]
-    }
-
-    // 显示正在调用工具
-    const showToolCalling = () => {
-      toolCallCount++
-      messages.value[messageIndex].isCallingTool = true
-      // 添加工具调用段落
-      messages.value[messageIndex].segments.push({
-        type: 'tool',
-        id: toolCallCount,
-        name: `Tool #${toolCallCount}`,
-        status: 'running',
-        startTime: Date.now()
-      })
-      // 强制响应式更新
-      messages.value = [...messages.value]
-      scrollToBottom()
-    }
-
-    // 工具调用完成
-    const hideToolCalling = () => {
-      messages.value[messageIndex].isCallingTool = false
-      // 找到最后一个运行中的工具段落并标记为完成
-      const segments = messages.value[messageIndex].segments
-      for (let i = segments.length - 1; i >= 0; i--) {
-        if (segments[i].type === 'tool' && segments[i].status === 'running') {
-          segments[i].status = 'completed'
-          segments[i].endTime = Date.now()
-          break
-        }
-      }
-      // 添加新的文本段落用于后续内容
-      segments.push({ type: 'text', content: '' })
-      // 强制响应式更新
-      messages.value = [...messages.value]
-    }
-
-    if (reader) {
-      try {
-        let lastEventWasEnd = false
-        let isFirstBegin = true  // 标记是否是第一个 begin
-        
-        while (true) {
-          const { value, done } = await reader.read()
-          if (done) break
-          
-          const chunkText = decoder.decode(value, { stream: true })
-          if (!chunkText) continue
-          
-          buffer += chunkText
-          
-          // n8n sends NDJSON (newline-delimited JSON)
-          // Split by newlines and process complete lines
-          const lines = buffer.split('\n')
-          // Keep the last potentially incomplete line in buffer
-          buffer = lines.pop() || ''
-          
-          for (const line of lines) {
-            const trimmedLine = line.trim()
-            if (!trimmedLine) continue
-            
-            try {
-              const parsed = parseN8nStreamChunk(trimmedLine)
-              if (!parsed) continue
-              
-              if (parsed.type === 'begin') {
-                if (isFirstBegin) {
-                  // 第一个 begin，忽略
-                  isFirstBegin = false
-                } else if (lastEventWasEnd) {
-                  // end 后的 begin，说明工具调用完成
-                  hideToolCalling()
-                }
-                lastEventWasEnd = false
-              } else if (parsed.type === 'end') {
-                // 检测到 end，显示正在调用工具
-                showToolCalling()
-                lastEventWasEnd = true
-              } else if (parsed.type === 'content' && parsed.content) {
-                updateContent(parsed.content)
-                lastEventWasEnd = false
-              }
-            } catch (parseError) {
-              console.warn('Error parsing stream line:', parseError, trimmedLine)
-              // 继续处理下一行，不中断整个流
-            }
-          }
-          
-          // Scroll after processing each chunk
-          scrollToBottom()
-        }
-      } catch (streamError) {
-        console.error('Stream reading error:', streamError)
-        // 流读取错误时，保留已接收的内容，不抛出异常
-      } finally {
-        try {
-          reader.releaseLock()
-        } catch (e) {
-          console.warn('Error releasing reader lock:', e)
-        }
-      }
-      
-      // Handle any remaining bytes (即使流中断也尝试处理)
-      try {
-        const remaining = decoder.decode()
-        if (remaining) {
-          buffer += remaining
-        }
-        
-        // Process any remaining line in buffer
-        if (buffer.trim()) {
-          const parsed = parseN8nStreamChunk(buffer.trim())
-          if (parsed?.type === 'content' && parsed.content) {
-            updateContent(parsed.content)
-          }
-        }
-      } catch (e) {
-        console.warn('Error processing remaining buffer:', e)
-      }
-      
-      // 确保所有工具调用段落都标记为完成
-      messages.value[messageIndex].isCallingTool = false
-      const segments = messages.value[messageIndex].segments
-      if (segments) {
-        segments.forEach(segment => {
-          if (segment.type === 'tool' && segment.status === 'running') {
-            segment.status = 'completed'
-            segment.endTime = Date.now()
-          }
-        })
-        // 移除末尾的空文本段落
-        while (segments.length > 0 && 
-               segments[segments.length - 1].type === 'text' && 
-               !segments[segments.length - 1].content?.trim()) {
-          segments.pop()
-        }
-        // 强制响应式更新
-        messages.value = [...messages.value]
-      }
-      
-      // Final scroll
-      scrollToBottom()
-    } else {
-      // Fallback: read entire response as text
-      const data = await response.text()
-      showTyping.value = false
-      // Try to parse as JSON first
-      const parsed = parseN8nStreamChunk(data)
-      const content = parsed?.type === 'content' ? parsed.content : data
-      messages.value[messageIndex].content = content
-      messages.value[messageIndex].segments = [{ type: 'text', content: content }]
-      await scrollToBottom()
-    }
-
-    if (!messages.value[messageIndex].content) {
-      const errorContent = 'I apologize, but I could not generate a response. Please try again.'
-      messages.value[messageIndex].content = errorContent
-      messages.value[messageIndex].segments = [{ type: 'text', content: errorContent }]
-    }
-  } catch (error) {
-    console.error('Error sending message:', error)
-    // 检查是否已经有助手消息（可能在流式传输中途失败）
-    if (messageIndex >= 0 && messages.value[messageIndex]?.role === 'assistant') {
-      // 已有部分内容，追加错误信息
-      const existingContent = messages.value[messageIndex].content || ''
-      const errorSuffix = existingContent 
-        ? `\n\n⚠️ **连接中断**: ${error.message}` 
-        : `❌ **Error**: ${error.message}`
-      
-      // 确保所有工具调用都标记为完成
-      const segments = messages.value[messageIndex].segments
-      if (segments) {
-        segments.forEach(segment => {
-          if (segment.type === 'tool' && segment.status === 'running') {
-            segment.status = 'completed'
-            segment.endTime = Date.now()
-          }
-        })
-        // 如果有内容，追加错误到最后一个文本段落
-        if (existingContent) {
-          const lastTextSegment = segments.filter(s => s.type === 'text').pop()
-          if (lastTextSegment) {
-            lastTextSegment.content += errorSuffix
-          } else {
-            segments.push({ type: 'text', content: errorSuffix })
-          }
-        } else {
-          messages.value[messageIndex].segments = [{ type: 'text', content: errorSuffix }]
-        }
-      }
-      messages.value[messageIndex].content += errorSuffix
-      messages.value[messageIndex].isCallingTool = false
-      // 强制响应式更新
-      messages.value = [...messages.value]
-    } else {
-      // 没有助手消息，创建新的错误消息
-      const errorContent = `❌ **Error**: Unable to connect to the EnzyMind Agent service.\n\nPlease ensure:\n- The n8n service is running on \`localhost:5678\`\n- The EnzyMind workflow is active\n\nError details: ${error.message}`
-      messages.value.push({
-        role: 'assistant',
-        content: errorContent,
-        segments: [{ type: 'text', content: errorContent }],
-        timestamp: new Date()
-      })
-    }
+    if (version === sessionVersion) error.value = e.message;
   } finally {
-    loading.value = false
-    showTyping.value = false
-    await scrollToBottom()
+    if (version === sessionVersion) {
+      booting.value = false;
+      await scrollBottom();
+    }
   }
 }
-
-onMounted(() => {
-  // Focus on input
-  if (inputTextarea.value) {
-    inputTextarea.value.focus()
-  }
-})
-</script>
-
-<style lang="scss" scoped>
-// ===== Color Variables for Chat =====
-$chat-bg: #f8fafc;
-$chat-surface: #ffffff;
-$chat-border: #e2e8f0;
-$chat-text: #1e293b;
-$chat-text-secondary: #64748b;
-$chat-text-muted: #94a3b8;
-
-// User message - light blue background with dark text for better readability
-$user-bubble-bg: #e0f2fe;
-$user-bubble-border: #7dd3fc;
-$user-bubble-text: #0c4a6e;
-
-$assistant-bubble-bg: #ffffff;
-$assistant-bubble-border: #e2e8f0;
-$assistant-bubble-text: #1e293b;
-
-$code-bg: #1e293b;
-$code-text: #e2e8f0;
-$inline-code-bg: #f1f5f9;
-$inline-code-text: #0f172a;
-
-$primary-color: #3b82f6;
-$primary-light: rgba(59, 130, 246, 0.1);
-$accent-color: #8b5cf6;
-
-.agent-page { 
-  min-height: 100vh; 
-  background: $chat-bg;
+async function newConversation() {
+  if (sending.value) return;
+  sidebarOpen.value = false;
+  sessionVersion++;
+  disconnectStream();
+  clearTimeout(pollTimer);
+  sessionId.value = "";
+  memory.value = {};
+  examplesOpen.value = false;
+  turns.value = [];
+  currentResults.value = [];
+  attachments.value = [];
+  draft.value = "";
+  file.value = null;
+  pendingRequest = null;
+  error.value = "";
+  booting.value = false;
+  rememberSession();
+  await nextTick();
+  if (messageList.value) messageList.value.scrollTop = 0;
+  composer.value?.focus({ preventScroll: true });
 }
-
-.agent-hero {
-  position: relative; 
-  padding-top: var(--navbar-height);
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  overflow: hidden;
-  
-  // Collapsed state - only show title
-  &.hero-collapsed {
-    cursor: pointer;
-    
-    .hero-container {
-      padding: 3px var(--spacing-lg) 20px;
-    }
-    
-    .hero-content {
-      flex-direction: row;
-      gap: 10px;
-    }
-    
-    .hero-title {
-      font-size: 2.0rem;
-    }
-    
-    &:hover {
-      background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
-      
-      .expand-hint {
-        opacity: 1;
+function schedulePoll() {
+  clearTimeout(pollTimer);
+  if (running.value && !unmounted && !streamController) void followTurn();
+}
+function disconnectStream() {
+  streamController?.abort();
+  streamController = null;
+}
+async function followTurn() {
+  const turn = turns.value.find(t => ['queued', 'running'].includes(t.status));
+  if (!turn || streamController || unmounted) return;
+  const controller = new AbortController(), version = sessionVersion;
+  streamController = controller;
+  let finished = false;
+  try {
+    await streamWorkspaceTurn(turn.id, controller.signal, async (kind, data) => {
+      if (version !== sessionVersion || controller.signal.aborted || unmounted) return;
+      const current = turns.value.find(t => t.id === turn.id);
+      if (!current) return;
+      if (kind === 'snapshot' || kind === 'done') Object.assign(current, data.turn);
+      if (kind === 'delta') current.partial_output = (current.partial_output || '') + data.text;
+      if (kind === 'progress') Object.assign(current, data);
+      if (data.results) currentResults.value = data.results;
+      if (error.value.startsWith('Connection interrupted.')) error.value = '';
+      if (followBottom) await scrollBottom();
+      if (kind === 'done') finished = true;
+    });
+  } catch (e) {
+    if (!controller.signal.aborted && version === sessionVersion && !unmounted)
+      error.value = `Connection interrupted. Reconnecting to the saved analysis. ${e.message}`;
+  } finally {
+    if (streamController === controller) streamController = null;
+    if (!controller.signal.aborted && version === sessionVersion && !unmounted) {
+      if (finished) {
+        await refreshTurn();
+        await Promise.all([loadSessions(), loadLibrary(), loadUsage()]).catch(() => {});
+      } else {
+        // Read-only fallback and reconnect. Never replay the POST that starts work.
+        pollTimer = setTimeout(refreshTurn, 1200);
       }
     }
   }
 }
-
-.hero-container {
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 32px var(--spacing-lg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  transition: padding 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.hero-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 12px;
-  transition: gap 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.hero-icon {
-  font-size: 3rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 72px;
-  height: 72px;
-  background: rgba(139, 92, 246, 0.2);
-  border: 1px solid rgba(139, 92, 246, 0.3);
-  border-radius: 20px;
-  animation: pulse 2s ease-in-out infinite;
-  margin-bottom: 8px;
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.hero-collapsed .hero-icon {
-  font-size: 1.5rem;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  margin-bottom: 0;
-  animation: none;
-}
-
-// Hero toggle button
-.hero-toggle-btn {
-  position: absolute;
-  right: var(--spacing-lg);
-  top: 50%;
-  transform: translateY(-50%);
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 8px;
-  padding: 8px;
-  cursor: pointer;
-  color: rgba(255, 255, 255, 0.7);
-  transition: all 0.2s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  
-  &:hover {
-    background: rgba(255, 255, 255, 0.2);
-    color: #fff;
+async function refreshTurn() {
+  const version = sessionVersion,
+    id = sessionId.value;
+  try {
+    const data = await workspaceFetch(`/sessions/${id}`);
+    if (version !== sessionVersion || unmounted) return;
+    const wasRunning = running.value;
+    if (error.value.startsWith("Connection interrupted.")) error.value = "";
+    memory.value = data;
+    turns.value = data.turns;
+    currentResults.value = data.results;
+    if (followBottom) await scrollBottom();
+    if (wasRunning && !running.value)
+      await Promise.all([loadSessions(), loadLibrary(), loadUsage()]);
+  } catch (e) {
+    if (version === sessionVersion)
+      error.value = `Connection interrupted. Reconnecting to the saved analysis. ${e.message}`;
+  } finally {
+    if (version === sessionVersion) schedulePoll();
   }
 }
-
-// Expand hint text
-.expand-hint {
-  font-size: 0.75rem;
-  color: rgba(255, 255, 255, 0.5);
-  opacity: 0;
-  transition: opacity 0.2s ease;
-}
-
-@keyframes pulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.05); }
-}
-
-.hero-title {
-  font-size: 2rem;
-  font-weight: 800;
-  color: #fff;
-  margin: 0;
-  line-height: 1.2;
-  transition: font-size 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  
-  .highlight {
-    background: linear-gradient(135deg, #a78bfa 0%, #60a5fa 50%, #34d399 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+async function send() {
+  if (!draft.value.trim() || sending.value || running.value || booting.value)
+    return;
+  sending.value = true;
+  await loadUsage();
+  if(limitReached.value && !deepseekKey.value){keyDialogOpen.value=true;sending.value=false;return;}
+  error.value = "";
+  const message =
+    draft.value.trim() +
+    (file.value
+      ? `\n\nAttached FASTA file: ${file.value.name}\n\n${file.value.text}`
+      : "");
+  if (message.length > 300000) {
+    error.value =
+      "The question and FASTA exceed 300,000 characters. Use fewer records per analysis.";
+    sending.value = false;
+    return;
   }
-}
-
-.hero-desc {
-  font-size: 1rem;
-  color: rgba(255, 255, 255, 0.7);
-  margin: 0;
-  max-width: 500px;
-}
-
-.hero-badges {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 10px;
-  margin-top: 8px;
-}
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 20px;
-  font-size: 0.85rem;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.9);
-  transition: all 0.2s ease;
-  
-  &:hover {
-    background: rgba(255, 255, 255, 0.12);
-    border-color: rgba(255, 255, 255, 0.25);
-    transform: translateY(-1px);
-  }
-}
-
-// ===== Chat Section =====
-.chat-section { 
-  padding: var(--spacing-xl) 0 var(--spacing-3xl);
-  background: $chat-bg;
-  transition: all 0.3s ease;
-  
-  &.chat-maximized {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 1000;
-    padding: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-}
-
-.section-container {
-  max-width: 1400px; 
-  margin: 0 auto; 
-  padding: 0 var(--spacing-lg);
-  display: grid; 
-  grid-template-columns: 1fr 320px; 
-  gap: var(--spacing-xl);
-  align-items: stretch;
-  
-  &.maximized {
-    max-width: 100%;
-    width: 100%;
-    height: 100%;
-    padding: 0;
-    display: flex;
-    
-    .features-sidebar {
-      display: none;
+  try {
+    if (!sessionId.value) {
+      const session = await postWorkspace("/sessions");
+      sessionId.value = session.id;
+      sessions.value.unshift(session);
+      rememberSession();
     }
+    const body = { message, references: attachments.value.map((r) => r.id) },
+      fingerprint = JSON.stringify([sessionId.value, body]);
+    if (pendingRequest?.fingerprint !== fingerprint)
+      pendingRequest = { fingerprint, id: newRequestId() };
+    const turn = await postWorkspace(`/sessions/${sessionId.value}/turns`, {
+      ...body,
+      request_id: pendingRequest.id,
+    }, deepseekKey.value ? {'X-DeepSeek-API-Key': deepseekKey.value} : {});
+    if (!turns.value.some((t) => t.id === turn.id)) turns.value.push(turn);
+    pendingRequest = null;
+    draft.value = "";
+    attachments.value = [];
+    file.value = null;
+    followBottom = true;
+    await scrollBottom();
+    schedulePoll();
+    await Promise.all([loadSessions(),loadUsage()]);
+  } catch (e) {
+    error.value = e.message;
+    if(e.code==='daily_limit'){quota.value=e.quota || quota.value;keyDialogOpen.value=true;await loadUsage();}
+  } finally {
+    sending.value = false;
   }
 }
+function onKeydown(event) {
+  if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+    event.preventDefault();
+    send();
+  }
+}
+async function stop() {
+  const turn = turns.value.find((t) =>
+    ["running", "queued"].includes(t.status),
+  );
+  if (!turn) return;
+  stopping.value = true;
+  try {
+    await postWorkspace(`/turns/${turn.id}/cancel`);
+    disconnectStream();
+    await refreshTurn();
+  } catch (e) {
+    error.value = e.message;
+  } finally {
+    stopping.value = false;
+  }
+}
+function usePrompt(text) {
+  draft.value = text;
+  composer.value?.focus();
+}
+async function toggleExamples() {
+  examplesOpen.value = !examplesOpen.value;
+  if (examplesOpen.value) memoryOpen.value = false;
+  await nextTick();
+  if (examplesOpen.value && messageList.value) messageList.value.scrollTop = 0;
+}
+function reuseTurn(turn) {
+  draft.value = turn.message;
+  // Saved messages already contain any uploaded FASTA text.
+  file.value = null;
+  pendingRequest = null;
+  error.value = "";
+  attachments.value = (turn.references || []).map((id) => ({
+    id,
+    title: resultTitle(id),
+  }));
+  composer.value?.focus();
+}
+async function attachFile(event) {
+  const chosen = event.target.files[0];
+  event.target.value = "";
+  if (!chosen) return;
+  if (chosen.size > 24000) {
+    error.value = "Please use a FASTA file smaller than 24 KB.";
+    return;
+  }
+  try {
+    const text = await chosen.text();
+    const records = text.trim().split(/^>/m).filter(Boolean);
+    if (
+      !text.trim().startsWith(">") ||
+      records.some(
+        (r) =>
+          !r.includes("\n") ||
+          !/^[ACDEFGHIKLMNPQRSTVWYBXZJUO\s*]+$/i.test(
+            r.slice(r.indexOf("\n") + 1),
+          ),
+      )
+    )
+      throw new Error(
+        "Use a valid FASTA file with a header and amino acid sequence for each protein.",
+      );
+    file.value = { name: chosen.name, text };
+    if (!draft.value)
+      draft.value = "Help me analyze the protein records in this FASTA file.";
+  } catch (e) {
+    error.value = e.message;
+  }
+}
+function attachResult(record) {
+  if (attachments.value.some((a) => a.id === record.id)) return;
+  if (attachments.value.length >= 4) {
+    error.value = "Attach up to four results per question.";
+    return;
+  }
+  attachments.value.push({ id: record.id, title: record.title });
+  composer.value?.focus();
+}
+function removeAttachment(id) {
+  attachments.value = attachments.value.filter((r) => r.id !== id);
+}
+async function showLibrary() {
+  sidebarOpen.value = false;
+  inspectVersion++;
+  inspectorOpen.value = true;
+  inspected.value = null;
+  inspectorError.value = "";
+  try {
+    await loadLibrary();
+  } catch (e) {
+    inspectorError.value = e.message;
+  }
+}
+async function inspectResult(id) {
+  const version = ++inspectVersion;
+  inspectorOpen.value = true;
+  inspecting.value = true;
+  inspectorError.value = "";
+  inspected.value = null;
+  try {
+    const record = await workspaceFetch(`/results/${id}`);
+    if (version === inspectVersion) inspected.value = record;
+  } catch (e) {
+    if (version === inspectVersion) inspectorError.value = e.message;
+  } finally {
+    if (version === inspectVersion) inspecting.value = false;
+  }
+}
+function handleCitation(event) {
+  const link = event.target.closest("a");
+  const id = link && resultReference(link.href);
+  if (id) {
+    event.preventDefault();
+    inspectResult(id);
+  }
+}
+async function attachFromRoute() {
+  const id = route.query.reference;
+  if (typeof id !== "string") return;
+  try {
+    const record = await workspaceFetch(`/results/${id}`);
+    attachResult(record);
+    inspected.value = record;
+    inspectorOpen.value = true;
+    if (!draft.value)
+      draft.value =
+        "Help me interpret this result and identify the next useful analysis.";
+    await router.replace({ path: "/agent" });
+  } catch (e) {
+    error.value = e.message;
+  }
+}
+async function importAccess(event) {
+  const chosen = event.target.files[0];
+  event.target.value = "";
+  if (!chosen) return;
+  if (sending.value) {
+    error.value =
+      "Wait for your current question to be saved before switching workspaces.";
+    return;
+  }
+  try {
+    restoreAccess(JSON.parse(await chosen.text()).access_key);
+    deepseekKey.value='';
+    newConversation();
+    inspected.value = null;
+    inspectorOpen.value = false;
+    await Promise.all([loadSessions(), loadLibrary(), loadUsage()]);
+  } catch (e) {
+    error.value = e.message;
+  }
+}
+function exportConversation() {
+  downloadData(
+    {
+      title: currentTitle.value,
+      turns: turns.value,
+      results: currentResults.value,
+    },
+    `enzymind-conversation-${sessionId.value.slice(0, 8)}.json`,
+  );
+}
+function onScroll() {
+  const el = messageList.value;
+  followBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+}
+async function scrollBottom() {
+  await nextTick();
+  if (messageList.value)
+    messageList.value.scrollTop = messageList.value.scrollHeight;
+}
+watch(() => route.query.reference, attachFromRoute);
+let resultPolling = false;
+const resultTimer = setInterval(async () => {
+  if (unmounted || resultPolling || ![...library.value, ...currentResults.value].some(r => r.tool === 'blast' && ['submitting','queued'].includes(r.status))) return;
+  resultPolling = true;
+  try {
+    const data = await workspaceFetch('/results');
+    if (unmounted) return;
+    library.value = data.results;
+    currentResults.value = currentResults.value.map(r => data.results.find(next => next.id === r.id) || r);
+  } catch { /* Preserve the last known results while reconnecting. */ }
+  finally { resultPolling = false; }
+}, 10000);
+onMounted(async () => {
+  try {
+    try {
+      const old = localStorage.getItem("enzymind_chat_history");
+      if (old) legacyHistory.value = JSON.parse(old);
+    } catch {}
+    await Promise.all([loadSessions(), loadLibrary(), loadUsage()]);
+    let saved = "";
+    try {
+      saved = localStorage.getItem("enzymind_workspace_session_v2") || "";
+    } catch {}
+    if (sessions.value.some((s) => s.id === saved)) await selectSession(saved);
+    await attachFromRoute();
+  } catch (e) {
+    error.value = e.message;
+  } finally {
+    booting.value = false;
+  }
+});
+onBeforeUnmount(() => {
+  clearInterval(resultTimer);
+  deepseekKey.value='';
+  unmounted = true;
+  sessionVersion++;
+  disconnectStream();
+  clearTimeout(pollTimer);
+});
+</script>
+<style scoped>
+.agent-billing{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 9px;font-size:11px;line-height:1.5;color:var(--color-text-secondary);}.agent-billing strong{color:var(--color-primary);font-variant-numeric:tabular-nums;}.agent-billing small{font-size:10px;color:var(--color-text-muted);}.agent-billing button{font:inherit;background:transparent;border:0;color:var(--color-primary);cursor:pointer;padding:3px 0;}.billing-personal{color:var(--color-primary);font-weight:600;}@media(max-width:600px){.agent-billing small{display:block;}}
+.memory-label-short{display:none;}.memory-close{border:0;background:transparent;color:var(--color-text-secondary);font-size:20px;line-height:1;cursor:pointer;padding:0 4px;}
+.topbar-actions .page-guide-trigger{padding:7px 9px;}
+@media(max-width:600px){.workspace-topbar{flex-wrap:wrap;height:auto!important;gap:8px!important;}.workspace-topbar>div:first-child{flex-basis:100%;}.topbar-actions{width:100%;justify-content:flex-end;gap:6px!important;flex-wrap:wrap;}.topbar-actions .page-guide-trigger :deep(.guide-button-label){display:none;}}
+.workspace-retention{margin:10px 28px;}
+@media(max-width:600px){.workspace-retention{margin:8px 12px;}}
+.partial-notice {font-size:12px;color:var(--color-text-muted);line-height:1.6;margin-top:12px;}
+.memory-panel {flex-shrink:0;max-height:300px;overflow:auto;padding:18px 28px;background:var(--color-background-alt);border-bottom:1px solid var(--color-border);font-size:12px;}
+.memory-panel-heading {display:flex;gap:16px;justify-content:space-between;flex-wrap:wrap;color:var(--color-primary);}
+.memory-panel dl {display:flex;gap:25px;flex-wrap:wrap;margin:12px 0;}
+.memory-panel dt {color:var(--color-text-muted);font-size:11px;}
+.memory-panel dd {margin:4px 0;font-weight:600;}
+.memory-panel p {line-height:1.7;margin:10px 0;}
+.memory-summary {white-space:pre-wrap;}
+.memory-panel summary {cursor:pointer;}
 
-.chat-container {
-  background: $chat-surface;
-  border: 1px solid $chat-border;
-  border-radius: 20px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
-  position: relative;
+.agent-workspace {
+  --ink: var(--color-text);
+  --muted: var(--color-text-muted);
+  --line: var(--color-border);
+  display: grid;
+  grid-template-columns: var(--sidebar-width, 250px) 8px minmax(0, 1fr);
+  height: calc(100dvh - var(--navbar-height, 72px) - 48px);
+  min-height: 620px;
+  max-width: calc(var(--container-max-width) - 2 * var(--page-gutter));
+  margin: 24px auto;
+  width: calc(100% - 2 * var(--page-gutter));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
   overflow: hidden;
+  box-shadow: var(--shadow-xl);
+  background: var(--glass-bg);
+  color: var(--ink);
+  font-family: var(--font-family);
+}
+.agent-workspace.inspector-open {
+  grid-template-columns: var(--sidebar-width, 220px) 8px minmax(360px, 1fr) 8px var(--inspector-width, 42%);
+}
+.column-resizer { display: flex; align-items: center; justify-content: center; cursor: col-resize; touch-action: none; background: var(--color-surface); z-index: 2; }
+.column-resizer i { width: 3px; height: 36px; border-radius: 3px; background: var(--color-border); transition: background .15s, height .15s; pointer-events: none; }
+.column-resizer:hover, .column-resizer:focus-visible, .is-resizing .column-resizer { background: var(--color-primary-light); outline: none; }
+.column-resizer:hover i, .column-resizer:focus-visible i, .is-resizing .column-resizer i { background: var(--color-primary); height: 56px; }
+.column-resizer:focus-visible { box-shadow: inset 0 0 0 2px var(--color-primary); }
+button {
+  font: inherit;
+  cursor: pointer;
+}
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+button:focus-visible,
+a:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+}
+.sidebar-backdrop,
+.sidebar-close {
+  display: none;
+}
+.workspace-sidebar {
+  min-width: 0;
+  background: linear-gradient(
+    160deg,
+    var(--color-primary-light),
+    var(--color-surface)
+  );
+  border-right: 1px solid var(--line);
+  padding: 24px 16px 16px;
   display: flex;
   flex-direction: column;
-  transition: all 0.3s ease;
-  // Default height: same as sidebar
-  height: calc(100vh - 350px);
-  min-height: 500px;
-  
-  &.maximized {
-    width: 100%;
-    height: 100%;
-    max-width: 100%;
-    max-height: 100%;
-    border-radius: 0;
-    border: none;
-  }
+  min-height: 0;
 }
-
-// ===== Chat Header =====
-.chat-header {
+.workspace-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 25px 4px;
+}
+.workspace-mark {
+  font-family: var(--font-family);
+  font-size: 30px;
+  background: var(--color-primary-gradient);
+  color: var(--color-surface);
+  border-radius: var(--radius-md);
+  width: 42px;
+  height: 42px;
+  text-align: center;
+  line-height: 40px;
+}
+.workspace-brand strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+}
+.workspace-brand div > span {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--muted);
+}
+.new-conversation {
+  background: var(--color-primary-gradient);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 11px;
+  color: var(--color-text-inverse);
+  text-align: left;
+  font-size: 13px;
+}
+.sidebar-label {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-  border-bottom: 1px solid $chat-border;
-  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--color-text-muted);
+  margin: 25px 8px 10px;
 }
-
-.chat-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  font-size: 0.9rem;
-  color: $chat-text;
-  
-  .chat-icon {
-    font-size: 1.1rem;
-  }
-  
-  .session-badge {
-    font-size: 0.7rem;
-    font-weight: 400;
-    color: $chat-text-muted;
-    background: rgba(0, 0, 0, 0.05);
-    padding: 2px 8px;
-    border-radius: 10px;
-    font-family: ui-monospace, SFMono-Regular, monospace;
-  }
+.sidebar-label button {
+  border: 0;
+  background: none;
+  color: var(--color-text-secondary);
+  font-size: 17px;
 }
-
-.chat-controls {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.control-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  background: transparent;
-  border-radius: 6px;
-  cursor: pointer;
-  color: $chat-text-secondary;
-  transition: all 0.2s ease;
-  
-  &:hover {
-    background: rgba(0, 0, 0, 0.06);
-    color: $chat-text;
-  }
-}
-
-// ===== Resize Handle =====
-.resize-handle {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 8px;
-  cursor: ns-resize;
-  background: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.03));
-  
-  &::after {
-    content: '';
-    position: absolute;
-    left: 50%;
-    bottom: 3px;
-    transform: translateX(-50%);
-    width: 40px;
-    height: 3px;
-    background: $chat-border;
-    border-radius: 2px;
-    transition: background 0.2s ease;
-  }
-  
-  &:hover::after {
-    background: $chat-text-muted;
-  }
-}
-
-// ===== Chat Messages =====
-.chat-messages {
+.conversation-list {
+  overflow: auto;
   flex: 1;
-  overflow-y: auto;
-  padding: 24px;
+  min-height: 0;
+}
+.conversation-item {
+  width: 100%;
+  background: none;
+  border: 1px solid transparent;
+  text-align: left;
+  border-radius: var(--radius-md);
+  padding: 10px;
+  margin: 2px 0;
+  color: var(--color-text-secondary);
+}
+.conversation-item span {
+  display: block;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  font-size: 13px;
+}
+.conversation-item small {
+  font-size: 12px;
+  opacity: 0.65;
+  display: block;
+  margin-top: 4px;
+}
+.conversation-item.active {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.sidebar-empty {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  padding: 12px 8px;
+  line-height: 1.7;
+}
+.sidebar-bottom {
+  border-top: 1px solid var(--color-border);
+  padding-top: 14px;
+  margin-top: 16px;
+  font-size: 13px;
+}
+.sidebar-bottom > button,
+.sidebar-bottom > a {
+  display: flex;
+  width: 100%;
+  padding: 9px 7px;
+  color: var(--color-text-secondary);
+  border: 0;
+  background: none;
+  text-align: left;
+  text-decoration: none;
+  gap: 12px;
+}
+.sidebar-bottom > button span {
+  margin-left: auto;
+}
+.sidebar-bottom details {
+  font-size: 12px;
+  margin: 10px 7px;
+  color: var(--color-text-muted);
+}
+.sidebar-bottom summary {
+  cursor: pointer;
+}
+.sidebar-bottom details p {
+  margin: 10px 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.sidebar-bottom details button {
+  background: white;
+  border: 1px solid var(--color-border);
+  padding: 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  margin: 4px 0;
+  display: block;
+  color: var(--color-text-secondary);
+}
+.conversation-pane {
+  container-type: inline-size;
+  container-name: conversation;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  background: $chat-bg;
-  
-  // Custom scrollbar
-  &::-webkit-scrollbar {
-    width: 6px;
-  }
-  &::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  &::-webkit-scrollbar-thumb {
-    background: $chat-border;
-    border-radius: 3px;
-    &:hover {
-      background: $chat-text-muted;
-    }
-  }
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-surface);
 }
-
-.welcome-message {
-  text-align: center; 
-  padding: 40px 20px;
-  
-  .welcome-icon { 
-    font-size: 4rem; 
-    margin-bottom: 20px; 
-    animation: bounce 2s infinite; 
-  }
-  
-  h3 { 
-    font-size: 1.5rem; 
-    font-weight: 700; 
-    color: $chat-text; 
-    margin-bottom: 12px; 
-  }
-  
-  p { 
-    color: $chat-text-secondary; 
-    margin-bottom: 28px;
-    font-size: 1rem;
-  }
-}
-
-@keyframes bounce { 
-  0%, 100% { transform: translateY(0); } 
-  50% { transform: translateY(-10px); } 
-}
-
-.suggestions {
-  display: flex; 
-  flex-wrap: wrap; 
-  gap: 10px; 
-  justify-content: center;
-}
-
-.suggestion-btn {
-  padding: 12px 20px;
-  background: $chat-surface;
-  border: 1px solid $chat-border;
-  border-radius: 12px;
-  font-size: 0.9rem;
-  color: $chat-text;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  
-  &:hover {
-    background: $primary-light;
-    border-color: $primary-color;
-    color: $primary-color;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
-  }
-}
-
-// ===== Message Styles =====
-.message {
+.workspace-topbar {
   display: flex;
-  gap: 12px;
-  max-width: 80%;
-  animation: messageIn 0.3s ease-out;
-  position: relative;
-  
-  &.user {
-    flex-direction: row-reverse;
-    margin-left: auto;
-  }
-  
-  &.assistant {
-    margin-right: auto;
-  }
-  
-  // History message styling
-  &.history-message {
-    opacity: 0.7;
-    
-    .message-content {
-      position: relative;
-      
-      &::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: repeating-linear-gradient(
-          -45deg,
-          transparent,
-          transparent 10px,
-          rgba(148, 163, 184, 0.03) 10px,
-          rgba(148, 163, 184, 0.03) 20px
-        );
-        pointer-events: none;
-        border-radius: inherit;
-      }
-    }
-    
-    &:hover {
-      opacity: 0.85;
-    }
-  }
-}
-
-// Session divider between old and new messages
-.session-divider {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 8px 0 16px;
-  padding: 0 20px;
-  width: 100%;
-}
-
-.divider-line {
-  flex: 1;
-  height: 1px;
-  background: linear-gradient(to right, transparent, #f59e0b, transparent);
-}
-
-.divider-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 12px;
-  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-  border: 1px solid #f59e0b;
-  border-radius: 12px;
-  font-size: 0.7rem;
-  color: #92400e;
-  font-weight: 500;
-  white-space: nowrap;
-  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.2);
-}
-
-// History badge in message header
-.history-badge {
-  font-size: 0.6rem;
-  padding: 1px 5px;
-  background: rgba(148, 163, 184, 0.2);
-  color: $chat-text-muted;
-  border-radius: 4px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-@keyframes messageIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.message-avatar {
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.1rem;
   flex-shrink: 0;
-  
-  .user & {
-    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
-  }
-  
-  .assistant & {
-    background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
-    box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
-  }
-}
-
-.message-content {
-  border-radius: 16px;
-  padding: 14px 18px;
-  max-width: 100%;
-  
-  .user & {
-    background: $user-bubble-bg;
-    border: 1px solid $user-bubble-border;
-    color: $user-bubble-text;
-    border-bottom-right-radius: 4px;
-  }
-  
-  .assistant & {
-    background: $assistant-bubble-bg;
-    border: 1px solid $assistant-bubble-border;
-    color: $assistant-bubble-text;
-    border-bottom-left-radius: 4px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  }
-}
-
-.message-header {
-  display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-  
-  .user & {
-    border-bottom-color: rgba(12, 74, 110, 0.15);
-  }
-  
-  .message-sender {
-    font-weight: 600;
-    font-size: 0.85rem;
-  }
-  
-  .message-time {
-    font-size: 0.75rem;
-    color: $chat-text-muted;
-    margin-left: auto;
-    
-    .user & {
-      color: rgba(12, 74, 110, 0.6);
-    }
-  }
+  justify-content: space-between;
+  border-bottom: 1px solid var(--color-background-alt);
+  padding: 17px 28px;
+  gap: 16px;
+  min-height: 81px;
 }
-
-// ===== Segment Display =====
-.segment-text {
-  // 文本段落样式，与 message-body 保持一致
-  &:not(:last-child) {
-    margin-bottom: 8px;
-  }
+.eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
 }
-
-.tool-call-segment {
-  margin: 6px 0;
+.workspace-topbar h1 {
+  font-size: 15px;
+  font-weight: 600;
   line-height: 1.4;
+  margin: 4px 0 0;
+  max-width: 440px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
 }
-
-// ===== Tool Calls Display (Inline Style) =====
-.tool-call-inline {
-  display: inline-flex;
+.workspace-topbar > div:first-child {
+  min-width: 0;
+  flex: 1;
+}
+.topbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
-  transition: all 0.2s ease;
-  
-  &.tool-running {
-    background: rgba(139, 92, 246, 0.1);
-    color: #7c3aed;
-  }
-  
-  &.tool-completed {
-    background: rgba(34, 197, 94, 0.08);
-    color: #16a34a;
-  }
+  flex-shrink: 0;
 }
-
-.tool-icon {
-  font-size: 0.7rem;
-  opacity: 0.7;
+.topbar-actions button {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  padding: 7px 10px;
+  white-space: nowrap;
 }
-
-.tool-name {
-  font-weight: 500;
+.topbar-actions button span {
+  margin-left: 5px;
+  color: var(--color-primary);
 }
-
-.tool-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  font-size: 0.7rem;
-  opacity: 0.8;
+.mobile-new {
+  display: none;
 }
-
-.tool-duration {
-  font-weight: 400;
-  opacity: 0.7;
-}
-
-.tool-spinner {
-  width: 10px;
-  height: 10px;
-  border: 1.5px solid rgba(139, 92, 246, 0.25);
-  border-top-color: #8b5cf6;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  display: inline-block;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-// ===== Tool Result Block (from [Used tools: ...] format) =====
-.message-body :deep(.tool-result-block) {
-  margin: 16px 0;
-  padding: 12px 16px;
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.06) 0%, rgba(59, 130, 246, 0.04) 100%);
-  border: 1px solid rgba(139, 92, 246, 0.15);
-  border-radius: 8px;
-  border-left: 3px solid $primary-color;
-}
-
-.message-body :deep(.tool-result-header) {
-  font-size: 0.8rem;
-  color: $primary-color;
-  margin-bottom: 10px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid rgba(139, 92, 246, 0.1);
-}
-
-.message-body :deep(.tool-result-content) {
-  font-size: 0.9rem;
-  
-  h2, h3, h4 {
-    color: $chat-text;
-    margin-top: 12px;
-    margin-bottom: 8px;
-    &:first-child {
-      margin-top: 0;
-    }
-  }
-  
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    margin: 10px 0;
-    font-size: 0.85rem;
-    
-    th, td {
-      padding: 6px 10px;
-      border: 1px solid rgba(139, 92, 246, 0.15);
-      text-align: left;
-    }
-    
-    th {
-      background: rgba(139, 92, 246, 0.08);
-      font-weight: 600;
-    }
-    
-    tr:nth-child(even) td {
-      background: rgba(139, 92, 246, 0.03);
-    }
-  }
-  
-  pre {
-    background: rgba(0, 0, 0, 0.03);
-    padding: 10px;
-    border-radius: 4px;
-    overflow-x: auto;
-    font-size: 0.8rem;
-  }
-}
-
-.message-body :deep(.tool-result-error) {
-  color: #dc2626;
-  font-size: 0.85rem;
-  padding: 8px;
-  background: rgba(220, 38, 38, 0.08);
-  border-radius: 4px;
-}
-
-// ===== Markdown Rendering Styles =====
-.message-body {
-  font-size: 0.95rem;
-  line-height: 1.7;
-  color: inherit;
-  
-  // Paragraphs
-  :deep(p) {
-    margin: 0 0 12px;
-    &:last-child {
-      margin-bottom: 0;
-    }
-  }
-  
-  // Headings
-  :deep(h1), :deep(h2), :deep(h3), :deep(h4), :deep(h5), :deep(h6) {
-    margin: 20px 0 12px;
-    font-weight: 700;
-    line-height: 1.3;
-    color: $chat-text;
-    
-    &:first-child {
-      margin-top: 0;
-    }
-  }
-  
-  :deep(h1) { font-size: 1.4rem; }
-  :deep(h2) { font-size: 1.25rem; }
-  :deep(h3) { font-size: 1.1rem; }
-  :deep(h4) { font-size: 1rem; }
-  
-  // Lists
-  :deep(ul), :deep(ol) {
-    margin: 12px 0;
-    padding-left: 24px;
-    
-    li {
-      margin: 6px 0;
-      line-height: 1.6;
-      
-      &::marker {
-        color: $primary-color;
-      }
-    }
-  }
-  
-  :deep(ul) {
-    list-style-type: disc;
-    
-    ul {
-      list-style-type: circle;
-      margin: 4px 0;
-    }
-  }
-  
-  :deep(ol) {
-    list-style-type: decimal;
-  }
-  
-  // Inline code
-  :deep(code) {
-    background: $inline-code-bg;
-    color: $inline-code-text;
-    padding: 2px 8px;
-    border-radius: 6px;
-    font-size: 0.88em;
-    font-family: 'SF Mono', 'Fira Code', 'Monaco', 'Consolas', monospace;
-    font-weight: 500;
-    border: 1px solid #e2e8f0;
-  }
-  
-  .user & :deep(code) {
-    background: rgba(12, 74, 110, 0.12);
-    color: #0c4a6e;
-    border-color: rgba(12, 74, 110, 0.2);
-  }
-  
-  // Code blocks
-  :deep(pre) {
-    background: $code-bg;
-    color: $code-text;
-    padding: 16px 20px;
-    border-radius: 12px;
-    overflow-x: auto;
-    margin: 16px 0;
-    font-size: 0.88rem;
-    line-height: 1.6;
-    border: 1px solid #334155;
-    
-    code {
-      background: transparent;
-      color: inherit;
-      padding: 0;
-      border: none;
-      font-size: inherit;
-      border-radius: 0;
-    }
-    
-    // Syntax highlighting enhancement
-    &::-webkit-scrollbar {
-      height: 6px;
-    }
-    &::-webkit-scrollbar-track {
-      background: #334155;
-      border-radius: 3px;
-    }
-    &::-webkit-scrollbar-thumb {
-      background: #475569;
-      border-radius: 3px;
-    }
-  }
-  
-  // Tables
-  :deep(table) {
-    width: 100%;
-    border-collapse: collapse;
-    margin: 16px 0;
-    font-size: 0.9rem;
-    border-radius: 8px;
-    overflow: hidden;
-    border: 1px solid $chat-border;
-    
-    th, td {
-      padding: 12px 16px;
-      text-align: left;
-      border-bottom: 1px solid $chat-border;
-    }
-    
-    th {
-      background: #f1f5f9;
-      font-weight: 600;
-      color: $chat-text;
-      text-transform: uppercase;
-      font-size: 0.8rem;
-      letter-spacing: 0.03em;
-    }
-    
-    td {
-      background: $chat-surface;
-    }
-    
-    tr:last-child td {
-      border-bottom: none;
-    }
-    
-    tr:hover td {
-      background: #f8fafc;
-    }
-  }
-  
-  // Blockquotes
-  :deep(blockquote) {
-    margin: 16px 0;
-    padding: 12px 20px;
-    border-left: 4px solid $primary-color;
-    background: $primary-light;
-    border-radius: 0 8px 8px 0;
-    color: $chat-text-secondary;
-    font-style: italic;
-    
-    p {
-      margin: 0;
-    }
-  }
-  
-  // Links
-  :deep(a) {
-    color: $primary-color;
-    text-decoration: none;
-    font-weight: 500;
-    border-bottom: 1px solid transparent;
-    transition: all 0.2s ease;
-    
-    &:hover {
-      border-bottom-color: $primary-color;
-    }
-  }
-  
-  .user & :deep(a) {
-    color: #0369a1;
-    
-    &:hover {
-      border-bottom-color: #0369a1;
-    }
-  }
-  
-  // Strong and emphasis
-  :deep(strong) {
-    font-weight: 700;
-    color: inherit;
-  }
-  
-  :deep(em) {
-    font-style: italic;
-  }
-  
-  // Horizontal rule
-  :deep(hr) {
-    border: none;
-    height: 1px;
-    background: $chat-border;
-    margin: 20px 0;
-  }
-  
-  // Images
-  :deep(img) {
-    max-width: 100%;
-    border-radius: 8px;
-    margin: 12px 0;
-  }
-}
-
-// ===== Loading Indicator =====
-.loading .message-content {
-  padding: 18px;
-}
-
-.typing-indicator {
+.memory-indicator {
+  font-size: 12px;
+  color: var(--color-text-muted);
   display: flex;
   gap: 5px;
   align-items: center;
-  
-  span {
-    width: 8px;
-    height: 8px;
-    background: $accent-color;
-    border-radius: 50%;
-    animation: typing 1.4s infinite ease-in-out;
-    
-    &:nth-child(2) { animation-delay: 0.2s; }
-    &:nth-child(3) { animation-delay: 0.4s; }
-  }
+  margin-right: 9px;
+  white-space: nowrap;
 }
-
-@keyframes typing {
-  0%, 80%, 100% {
-    transform: scale(0.8);
-    opacity: 0.5;
-  }
-  40% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-
-// ===== Chat Input =====
-.chat-input-container {
-  padding: 20px;
-  border-top: 1px solid $chat-border;
-  background: $chat-surface;
-}
-
-.input-wrapper {
-  display: flex;
-  gap: 12px;
-  align-items: flex-end;
-  background: $chat-bg;
-  border: 2px solid $chat-border;
-  border-radius: 16px;
-  padding: 8px 12px;
-  transition: all 0.2s ease;
-  
-  &:focus-within {
-    border-color: $primary-color;
-    box-shadow: 0 0 0 4px $primary-light;
-  }
-}
-
-.input-wrapper textarea {
-  flex: 1;
-  border: none;
-  outline: none;
-  background: transparent;
-  font-size: 1rem;
-  resize: none;
-  max-height: 150px;
-  line-height: 1.5;
-  padding: 10px 4px;
-  font-family: inherit;
-  color: $chat-text;
-  
-  &::placeholder {
-    color: $chat-text-muted;
-  }
-  
-  &:disabled {
-    opacity: 0.6;
-  }
-}
-
-.send-btn {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-  border: none;
-  color: #fff;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s ease;
-  flex-shrink: 0;
-  
-  &:hover:not(:disabled) {
-    transform: scale(1.05);
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
-  }
-  
-  &:disabled {
-    background: #cbd5e1;
-    opacity: 0.7;
-    cursor: not-allowed;
-  }
-}
-
-// ===== Attach Button =====
-.attach-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  background: transparent;
-  border: 1px solid $chat-border;
-  color: $chat-text-secondary;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s ease;
-  flex-shrink: 0;
-  
-  &:hover:not(:disabled) {
-    background: $primary-light;
-    border-color: $primary-color;
-    color: $primary-color;
-    transform: scale(1.05);
-  }
-  
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-}
-
-// ===== File Attachment Display =====
-.file-attachment {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(139, 92, 246, 0.08) 100%);
-  border: 1px solid rgba(59, 130, 246, 0.3);
-  border-radius: 12px;
-  margin-bottom: 12px;
-  animation: slideIn 0.2s ease-out;
-  
-  .file-info {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex: 1;
-    min-width: 0;
-    
-    .file-icon {
-      font-size: 1.2rem;
-      flex-shrink: 0;
-    }
-    
-    .file-name {
-      font-size: 0.9rem;
-      font-weight: 600;
-      color: $chat-text;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    
-    .file-size {
-      font-size: 0.8rem;
-      color: $chat-text-secondary;
-      flex-shrink: 0;
-    }
-  }
-  
-  .file-remove {
-    width: 28px;
-    height: 28px;
-    border-radius: 8px;
-    background: transparent;
-    border: none;
-    color: $chat-text-muted;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s ease;
-    flex-shrink: 0;
-    margin-left: 8px;
-    
-    &:hover {
-      background: rgba(239, 68, 68, 0.1);
-      color: #ef4444;
-    }
-  }
-}
-
-@keyframes slideIn {
-  from {
-    opacity: 0;
-    transform: translateY(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.btn-loading {
-  width: 20px;
-  height: 20px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top-color: #fff;
+.memory-indicator i {
+  width: 5px;
+  height: 5px;
+  background: var(--color-success);
   border-radius: 50%;
-  animation: spin 1s linear infinite;
 }
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
+.conversation-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
 }
-
-.input-hint {
-  font-size: 0.75rem;
-  color: $chat-text-muted;
-  text-align: center;
-  margin-top: 10px;
+.workspace-welcome {
+  max-width: 850px;
+  margin: auto;
+  padding: 30px 45px 24px;
 }
-
-// ===== Features Sidebar =====
-.features-sidebar {
-  background: $chat-surface;
-  border: 1px solid $chat-border;
-  border-radius: 20px;
-  padding: 24px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
-  height: calc(100vh - 350px);
-  min-height: 500px;
+.welcome-kicker {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--color-primary);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.welcome-kicker > span {
+  font-size: 22px;
+  color: var(--color-primary);
+}
+.workspace-welcome h2 {
+  font-family: var(--font-family);
+  font-weight: 800;
+  font-size: clamp(32px, 3vw, 44px);
+  line-height: 1.15;
+  letter-spacing: -0.035em;
+  background: var(--color-primary-gradient);
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin: 18px 0;
+}
+.workspace-welcome > p {
+  font-size: 14px;
+  line-height: 1.85;
+  color: var(--color-text-secondary);
+}
+.research-journeys {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 11px;
+  margin: 30px 0 23px;
+}
+.research-journeys button {
+  position: relative;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  text-align: left;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+  min-height: 116px;
 }
-
-.sidebar-title {
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: $chat-text;
-  margin-bottom: 16px;
+.research-journeys button:hover {
+  border-color: var(--color-primary);
+  background: var(--color-surface);
 }
-
-.tool-category {
-  margin-bottom: 20px;
-  
-  &:last-of-type {
-    margin-bottom: 0;
-  }
+.journey-number {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+  margin-bottom: 9px;
 }
-
-.category-title {
-  font-size: 0.85rem;
+.research-journeys strong {
+  font-size: 14px;
   font-weight: 600;
-  color: $primary-color;
-  margin: 0 0 12px 0;
-  padding-bottom: 8px;
-  border-bottom: 1px solid rgba(139, 92, 246, 0.2);
+  color: var(--color-text);
+}
+.research-journeys strong + span {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-top: 5px;
+}
+.research-journeys b {
+  position: absolute;
+  right: 17px;
+  top: 17px;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--color-primary);
+}
+.workspace-how {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+.workspace-how span {
   display: flex;
   align-items: center;
   gap: 6px;
 }
-
-.tool-list {
+.workspace-how b {
+  border: 1px solid var(--color-border);
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  text-align: center;
+  line-height: 15px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--color-primary);
+}
+.workspace-how i {
+  color: var(--color-border);
+  font-style: normal;
+}
+.composer-area {
+  padding: 10px 28px 17px;
+  background: var(--color-surface);
+}
+.message-composer {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: 0 5px 17px rgba(37, 99, 235, 0.04);
+  padding: 13px 15px 10px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+.message-composer:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+.message-composer textarea {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  resize: vertical;
+  min-height: 66px;
+  max-height: 200px;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.7;
+  padding: 2px;
+}
+.message-composer textarea::placeholder {
+  color: var(--color-text-muted);
+}
+.composer-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.composer-toolbar > div {
+  display: flex;
+  gap: 10px;
+}
+.composer-toolbar button {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  border: 0;
+  background: none;
+  padding: 7px 0;
+}
+.composer-toolbar .send-button {
+  background: var(--color-primary-gradient);
+  color: var(--color-surface);
+  padding: 9px 14px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+}
+.send-button span {
+  margin-left: 15px;
+}
+.composer-toolbar .stop-button {
+  color: var(--color-error);
+  background: var(--color-error-light);
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+}
+.composer-footnote {
+  max-width: 900px;
+  margin: 9px auto 0;
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  gap: 10px;
+}
+.composer-attachments {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  max-width: 900px;
+  margin: 0 auto 8px;
+}
+.composer-attachments button {
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  background: var(--color-primary-light);
+  padding: 6px 9px;
+  font-size: 12px;
+  color: var(--color-primary);
+}
+.composer-attachments span {
+  margin-left: 10px;
+}
+.composer-error,
+.workspace-notice {
+  padding: 10px 13px;
+  background: var(--color-background-alt);
+  border: 1px solid var(--color-border);
+  color: var(--color-warning);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  max-width: 900px;
+  margin: 0 auto 8px;
+  overflow-wrap: anywhere;
+}
+.workspace-notice {
+  margin: 10px 20px 0;
+  max-width: none;
+  font-size: 12px;
+}
+.composer-error button,
+.workspace-notice button {
+  border: 0;
+  background: none;
+  color: inherit;
+  margin-left: 8px;
+  text-decoration: underline;
+}
+.turn-list {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 30px 32px;
+}
+.research-turn {
+  margin-bottom: 38px;
+}
+.message-byline {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  font-size: 12px;
+  letter-spacing: 0.07em;
+  font-weight: 700;
+  color: var(--color-text-secondary);
+  margin-bottom: 12px;
+}
+.message-byline time {
+  font-weight: 400;
+  font-size: 11px;
+  letter-spacing: 0;
+  color: var(--color-text-muted);
+  margin-left: 5px;
+}
+.user-turn {
+  margin: 0 0 25px 32px;
+  background: var(--color-background-alt);
+  border: 1px solid var(--color-background-alt);
+  padding: 16px 20px;
+  border-radius: var(--radius-md);
+}
+.user-turn p {
+  font-size: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--color-text);
+  line-height: 1.8;
+}
+.user-turn details {
+  font-size: 13px;
+}
+.user-turn pre {
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 12px;
+}
+.assistant-turn {
+  font-size: 14px;
+  line-height: 1.8;
+  min-width: 0;
+}
+.assistant-mark {
+  background: var(--color-primary-gradient);
+  color: white;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  text-align: center;
+  line-height: 24px;
+  font-family: var(--font-family);
+  font-size: 16px;
+  letter-spacing: 0;
+}
+.live-label {
+  color: var(--color-primary);
+  font-size: 11px;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+.agent-markdown {
+  overflow-wrap: anywhere;
+  overflow-x: auto;
+  padding-left: 33px;
+  color: var(--color-text-secondary);
+}
+.agent-markdown :deep(p) {
+  margin-bottom: 12px;
+}
+.agent-markdown :deep(h1),
+.agent-markdown :deep(h2),
+.agent-markdown :deep(h3) {
+  font-size: 17px;
+  margin: 22px 0 10px;
+}
+.agent-markdown :deep(a) {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-decoration-color: var(--color-primary);
+  text-underline-offset: 3px;
+}
+.agent-markdown :deep(ul),
+.agent-markdown :deep(ol) {
+  padding-left: 22px;
+  margin: 10px 0;
+}
+.agent-markdown :deep(table) {
+  border-collapse: collapse;
+  font-size: 13px;
+  margin: 15px 0;
+  width: 100%;
+}
+.agent-markdown :deep(th),
+.agent-markdown :deep(td) {
+  padding: 8px;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+}
+.agent-markdown :deep(th) {
+  background: var(--color-background-alt);
+}
+.agent-markdown :deep(pre) {
+  background: var(--color-background-alt);
+  padding: 12px;
+  overflow: auto;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+}
+.inline-references {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.inline-references button {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  border-radius: 4px;
+  color: var(--color-primary);
+  font-size: 12px;
+  padding: 5px 8px;
+}
+.tool-timeline {
+  margin: 12px 0 17px 33px;
+  border: 1px solid var(--color-background-alt);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  background: var(--color-surface);
+}
+.tool-timeline summary {
+  padding: 9px 12px;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+}
+.tool-timeline summary span {
+  margin-left: 8px;
+  color: var(--color-text-muted);
+}
+.tool-timeline > button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 0;
+  border-top: 1px solid var(--color-background-alt);
+  padding: 9px 12px;
+  text-align: left;
+  font-size: 12px;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+}
+.tool-timeline > button:disabled {
+  opacity: 1;
+}
+.tool-timeline small {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.step-status {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  text-align: center;
+  background: var(--color-background-alt);
+  line-height: 16px;
+  color: var(--color-text-muted);
+}
+.step-status.completed {
+  background: var(--color-primary-light);
+  color: var(--color-success);
+}
+.step-status.failed {
+  background: var(--color-background-alt);
+  color: var(--color-error);
+}
+.step-status.running {
+  animation: pulse 1.6s infinite;
+  color: var(--color-primary);
+}
+.working-status {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 15px 0 15px 33px;
+}
+.working-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  animation: pulse 1.6s infinite;
+}
+.context-notice {
+  margin: 14px 0 0;
+  padding: 12px 16px;
+  border: 1px solid #c8dcf2;
+  border-radius: 10px;
+  background: #f3f8ff;
+  color: #435c79;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.turn-error {
+  background: var(--color-background-alt);
+  border: 1px solid var(--color-border);
+  padding: 14px;
+  border-radius: var(--radius-md);
+  margin-left: 33px;
+  font-size: 13px;
+  color: var(--color-warning);
+}
+.turn-error p {
+  margin: 6px 0;
+}
+.turn-error button {
+  background: white;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--color-warning);
+}
+.answer-results {
+  margin: 20px 0 0 33px;
+}
+.answer-results > button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-primary);
+  font-size: 12px;
+  margin-top: 7px;
+  text-align: left;
+}
+.answer-results > button span:last-child {
+  margin-left: auto;
+  color: var(--color-primary);
+  font-size: 12px;
+}
+.result-inspector {
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  border-left: 1px solid var(--color-border);
+  background: var(--color-surface);
 }
-
-.tool-item {
+.result-inspector > header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
+  justify-content: space-between;
+  padding: 19px 22px;
+  border-bottom: 1px solid var(--color-border);
+  height: 81px;
+}
+.result-inspector h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 4px 0 0;
+}
+.result-inspector > header button {
+  border: 0;
+  background: transparent;
+  font-size: 22px;
+  color: var(--color-text-muted);
+}
+.inspector-scroll {
+  overflow: auto;
+  padding: 20px;
+  min-height: 0;
+  scrollbar-width: thin;
+}
+.library-search {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.library-search input {
+  display: block;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 10px 11px;
+  width: 100%;
+  font: inherit;
+  font-size: 13px;
+  margin-top: 6px;
+  background: var(--color-surface);
+}
+.library-help {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  line-height: 1.7;
+  margin: 12px 0;
+}
+.library-tabs {
+  display: flex;
+  gap: 5px;
+  margin: 20px 0;
+}
+.library-tabs button {
+  border: 1px solid transparent;
+  background: none;
+  font-size: 12px;
+  padding: 6px 9px;
+  color: var(--color-text-muted);
+  border-radius: 5px;
+}
+.library-tabs button.active {
+  background: white;
+  border-color: var(--color-border);
+  color: var(--color-primary);
+}
+.library-card {
+  background: white;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 17px;
+  margin-bottom: 11px;
+}
+.library-card-title {
+  display: block;
+  font-size: 14px;
+  color: var(--color-text);
+  font-weight: 600;
+  border: 0;
+  background: none;
+  margin: 6px 0 9px;
+  text-align: left;
+}
+.library-card p {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  word-break: break-word;
+  max-height: 35px;
+  overflow: hidden;
+}
+.library-card footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-top: 14px;
   gap: 10px;
-  padding: 10px 12px;
-  background: $chat-bg;
-  border: 1px solid $chat-border;
-  border-radius: 10px;
-  transition: all 0.2s ease;
+}
+.library-card footer button {
+  border: 1px solid var(--color-border);
+  background: var(--color-primary-light);
+  border-radius: 4px;
+  padding: 5px 8px;
+  color: var(--color-primary);
+  font-size: 12px;
+}
+.completed {
+  color: var(--color-success);
+}
+.failed {
+  color: var(--color-error);
+}
+.inspector-empty {
+  text-align: center;
+  padding: 50px 15px;
+  color: var(--color-text-muted);
+}
+.inspector-empty > span {
+  display: block;
+  font-size: 35px;
+  color: var(--color-border);
+  margin-bottom: 15px;
+}
+.inspector-empty strong {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+}
+.inspector-empty p {
+  font-size: 12px;
+  margin: 10px 0 22px;
+}
+.inspector-empty a {
+  color: var(--color-primary);
+  font-size: 12px;
   text-decoration: none;
-  
-  &:hover {
-    border-color: $primary-color;
-    transform: translateX(4px);
-    background: $primary-light;
-  }
-  
-  .tool-icon {
-    font-size: 1.1rem;
-    flex-shrink: 0;
-    margin-top: 2px;
-  }
-  
-  .tool-info {
-    flex: 1;
-    
-    h4 {
-      font-size: 0.85rem;
-      font-weight: 600;
-      color: $chat-text;
-      margin: 0 0 2px;
-    }
-    
-    p {
-      font-size: 0.75rem;
-      color: $chat-text-secondary;
-      margin: 0;
-      line-height: 1.4;
-    }
-  }
-  
-  .tool-arrow {
-    font-size: 0.9rem;
-    color: $chat-text-muted;
-    opacity: 0;
-    transition: all 0.2s ease;
-    margin-left: auto;
-    align-self: center;
-  }
-  
-  &.tool-link {
-    cursor: pointer;
-    
-    &:hover {
-      .tool-arrow {
-        opacity: 1;
-        color: $primary-color;
-        transform: translateX(3px);
-      }
-      
-      .tool-info h4 {
-        color: $primary-color;
-      }
-    }
+}
+.inspector-navigation {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 22px;
+}
+.inspector-navigation button {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  border-radius: 5px;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: var(--color-primary);
+}
+.loading-state {
+  padding: 50px;
+  color: var(--color-text-muted);
+  text-align: center;
+  font-size: 14px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
   }
 }
-
-.tech-stack {
-  margin-top: auto;
-  padding-top: 20px;
-  border-top: 1px solid $chat-border;
-  
-  .stack-title {
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: $chat-text-muted;
-    margin-bottom: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-  
-  .stack-items {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  
-  .stack-item {
-    font-size: 0.85rem;
-    padding: 6px 14px;
-    background: $chat-bg;
-    border: 1px solid $chat-border;
-    border-radius: 20px;
-    color: $chat-text-secondary;
-    transition: all 0.2s ease;
-    
-    &:hover {
-      background: $primary-light;
-      border-color: $primary-color;
-      color: $primary-color;
-    }
-  }
-}
-
-// ===== Responsive =====
 @media (max-width: 1200px) {
-  .section-container {
-    grid-template-columns: 1fr 280px;
-    gap: 20px;
+  .inspector-resizer { display: none; }
+  .agent-workspace.inspector-open {
+    grid-template-columns: var(--sidebar-width, 250px) 8px minmax(0, 1fr);
   }
-  
-  .features-sidebar {
-    padding: 20px;
+  .inspector-open .result-inspector {
+    position: fixed;
+    right: 0;
+    top: var(--navbar-height, 72px);
+    bottom: 0;
+    width: min(720px, 70vw);
+    z-index: 100;
+    box-shadow: -15px 0 50px rgba(15, 23, 42, 0.12);
   }
-  
-  .tool-item {
-    padding: 8px 10px;
-    
-    .tool-info {
-      h4 {
-        font-size: 0.8rem;
-      }
-      p {
-        font-size: 0.7rem;
-      }
-    }
+  .memory-indicator {
+    display: inline-flex;
+    margin-right: 0;
+  }
+  .memory-label-full{display:none;}
+  .memory-label-short{display:inline;}
+  .workspace-welcome {
+    padding: 40px 30px 25px;
   }
 }
-
-@media (max-width: 1024px) {
-  .section-container {
+@media (max-width: 760px) {
+  .column-resizer { display: none; }
+  .memory-panel{max-height:min(240px,30dvh);}
+  .agent-workspace,
+  .agent-workspace.inspector-open {
     grid-template-columns: 1fr;
-    gap: 16px;
+    min-height: 500px;
   }
-  
-  // 工具列表在移动端作为可折叠的底部面板
-  .features-sidebar {
-    display: block;
-    height: auto;
-    min-height: auto;
-    max-height: none;
-    order: 1; // 放在聊天框下方
-    padding: 16px;
-    
-    // 紧凑的水平滚动工具列表
-    .tool-category {
-      margin-bottom: 12px;
-      
-      &:last-of-type {
-        margin-bottom: 0;
-      }
-    }
-    
-    .tool-list {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    
-    .tool-item {
-      flex: 0 0 auto;
-      padding: 6px 12px;
-      
-      .tool-info p {
-        display: none; // 隐藏描述，只显示标题
-      }
-    }
-  }
-  
-  .sidebar-title {
-    margin-bottom: 12px;
-    font-size: 1rem;
-  }
-  
-  .category-title {
-    font-size: 0.8rem;
-    margin-bottom: 8px;
-  }
-  
-  .tech-stack {
-    display: none; // 移动端隐藏技术栈
-  }
-  
-  // 聊天容器占据主要空间
-  .chat-container {
-    height: calc(100vh - 280px);
-    min-height: 450px;
-    order: 0; // 确保在工具列表之前
-  }
-  
-  .hero-badges {
-    gap: 8px;
-  }
-  
-  .badge {
-    padding: 5px 10px;
-    font-size: 0.8rem;
-  }
-}
-
-@media (max-width: 768px) {
-  .agent-hero {
-    padding-top: calc(var(--navbar-height) - 10px);
-  }
-  
-  .hero-container {
-    padding: 16px var(--spacing-md);
-  }
-  
-  .hero-icon {
-    width: 52px;
-    height: 52px;
-    font-size: 2rem;
-    border-radius: 14px;
-    margin-bottom: 4px;
-  }
-  
-  .hero-title {
-    font-size: 1.4rem;
-  }
-  
-  .hero-desc {
-    font-size: 0.85rem;
-    padding: 0 10px;
-  }
-  
-  .hero-badges {
-    gap: 6px;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-  
-  .badge {
-    padding: 4px 10px;
-    font-size: 0.75rem;
-  }
-  
-  .chat-section {
-    padding: var(--spacing-md) 0 var(--spacing-lg);
-  }
-  
-  .section-container {
-    padding: 0 var(--spacing-md);
-  }
-  
-  // 工具列表更紧凑
-  .features-sidebar {
-    padding: 14px;
-    border-radius: 14px;
-    
-    .tool-item {
-      padding: 5px 10px;
-      border-radius: 8px;
-      
-      .tool-icon {
-        font-size: 0.95rem;
-      }
-      
-      .tool-info h4 {
-        font-size: 0.75rem;
-      }
-      
-      .tool-arrow {
-        display: none;
-      }
-    }
-  }
-  
-  .sidebar-title {
-    font-size: 0.95rem;
-  }
-  
-  .category-title {
-    font-size: 0.75rem;
-    padding-bottom: 6px;
-  }
-  
-  // 聊天区域保持为主焦点
-  .chat-container {
-    height: calc(100vh - 260px);
-    min-height: 400px;
-    border-radius: 16px;
-  }
-  
-  .welcome-message {
-    padding: 24px 16px;
-    
-    .welcome-icon {
-      font-size: 2.5rem;
-    }
-    
-    h3 {
-      font-size: 1.1rem;
-    }
-    
-    p {
-      font-size: 0.85rem;
-    }
-  }
-  
-  .suggestions {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-  }
-  
-  .suggestion-btn {
-    text-align: left;
-    padding: 10px 14px;
-    font-size: 0.85rem;
-  }
-  
-  .message {
-    max-width: 92%;
-  }
-  
-  .chat-messages {
-    padding: 14px;
-  }
-  
-  .message-content {
-    padding: 10px 12px;
-    font-size: 0.9rem;
-  }
-  
-  .chat-input-container {
-    padding: 12px;
-  }
-  
-  .input-wrapper {
-    padding: 8px 10px;
-    border-radius: 20px;
-    
-    textarea {
-      font-size: 0.9rem;
-    }
-  }
-  
-  .input-hint {
-    font-size: 0.7rem;
-  }
-}
-
-@media (max-width: 480px) {
-  .hero-container {
-    padding: 12px var(--spacing-sm);
-  }
-  
-  .hero-icon {
-    width: 44px;
-    height: 44px;
-    font-size: 1.6rem;
-    border-radius: 12px;
-  }
-  
-  .hero-title {
-    font-size: 1.2rem;
-  }
-  
-  .hero-desc {
-    font-size: 0.8rem;
-  }
-  
-  .hero-badges {
-    gap: 4px;
-  }
-  
-  .badge {
-    padding: 3px 8px;
-    font-size: 0.7rem;
-  }
-  
-  .section-container {
-    padding: 0 var(--spacing-sm);
-  }
-  
-  // 超小屏幕：只显示可跳转的工具，更紧凑
-  .features-sidebar {
-    padding: 12px;
-    border-radius: 12px;
-    
-    // 隐藏无链接的工具项
-    .tool-item:not(.tool-link) {
-      display: none;
-    }
-    
-    .tool-item {
-      padding: 4px 8px;
-      
-      .tool-icon {
-        font-size: 0.85rem;
-      }
-      
-      .tool-info h4 {
-        font-size: 0.7rem;
-      }
-    }
-  }
-  
-  .sidebar-title {
-    font-size: 0.9rem;
-    margin-bottom: 10px;
-  }
-  
-  .category-title {
-    font-size: 0.7rem;
-    margin-bottom: 6px;
-  }
-  
-  // 聊天区域最大化
-  .chat-container {
-    height: calc(100vh - 220px);
-    min-height: 350px;
-    border-radius: 12px;
-  }
-  
-  .welcome-message {
-    padding: 20px 12px;
-    
-    .welcome-icon {
-      font-size: 2rem;
-    }
-    
-    h3 {
-      font-size: 1rem;
-    }
-    
-    p {
-      font-size: 0.8rem;
-    }
-  }
-  
-  .suggestion-btn {
-    padding: 8px 12px;
-    font-size: 0.8rem;
-    border-radius: 10px;
-  }
-  
-  .message-content {
-    padding: 8px 10px;
-    font-size: 0.85rem;
-  }
-  
-  .chat-input-container {
-    padding: 10px;
-  }
-  
-  .input-wrapper {
-    padding: 6px 8px;
-    
-    textarea {
-      font-size: 0.85rem;
-    }
-    
-    .send-btn {
-      width: 34px;
-      height: 34px;
-    }
-  }
-  
-  .input-hint {
+  .workspace-sidebar {
     display: none;
+  }
+  .workspace-sidebar.mobile-open {
+    display: flex;
+    position: fixed;
+    top: var(--navbar-height, 72px);
+    bottom: 0;
+    left: 0;
+    width: min(320px, 88vw);
+    z-index: 60;
+    box-shadow: 10px 0 40px rgba(15, 23, 42, 0.15);
+  }
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: var(--navbar-height, 72px) 0 0;
+    z-index: 59;
+    background: rgba(15, 23, 42, 0.3);
+    border: 0;
+  }
+  .mobile-open .sidebar-close {
+    display: block;
+    position: absolute;
+    right: 14px;
+    top: 14px;
+    border: 0;
+    background: transparent;
+    font-size: 24px;
+    color: var(--color-text-secondary);
+  }
+  .mobile-new {
+    display: block;
+  }
+  .workspace-topbar {
+    padding: 12px 16px;
+    height: 70px;
+    min-height: 70px;
+  }
+  .workspace-topbar h1 {
+    font-size: 14px;
+    max-width: 155px;
+  }
+  .workspace-topbar .eyebrow {
+    font-size: 8px;
+  }
+  .workspace-welcome {
+    padding: 30px 22px 20px;
+  }
+  .workspace-welcome h2 {
+    font-size: 35px;
+  }
+  .workspace-welcome > p {
+    font-size: 13px;
+  }
+  .research-journeys {
+    gap: 8px;
+    margin-top: 22px;
+  }
+  .research-journeys button {
+    padding: 14px;
+    min-height: 110px;
+  }
+  .research-journeys strong {
+    font-size: 13px;
+  }
+  .research-journeys strong + span {
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .workspace-how {
+    flex-wrap: wrap;
+    font-size: 8px;
+    gap: 7px;
+  }
+  .composer-area {
+    padding: 9px 14px 13px;
+  }
+  .composer-footnote {
+    font-size: 8px;
+  }
+  .composer-footnote span:last-child {
+    display: none;
+  }
+  .composer-toolbar > div {
+    gap: 8px;
+  }
+  .composer-toolbar button {
+    font-size: 11px;
+  }
+  .composer-toolbar .send-button {
+    padding: 9px;
+    font-size: 12px;
+  }
+  .turn-list {
+    padding: 22px 15px;
+  }
+  .user-turn {
+    margin-left: 15px;
+    padding: 13px;
+  }
+  .agent-markdown {
+    padding-left: 10px;
+  }
+  .answer-results,
+  .tool-timeline,
+  .working-status,
+  .turn-error {
+    margin-left: 10px;
+  }
+  .inspector-open .result-inspector {
+    width: 100vw;
+    top: var(--navbar-height, 72px);
+  }
+  .inspector-scroll {
+    padding: 16px;
+  }
+  .topbar-actions button {
+    font-size: 12px;
+    padding: 6px;
+  }
+}
+@container conversation (max-width: 600px) {
+  .workspace-topbar { flex-wrap: wrap; height: auto; padding: 12px 16px; gap: 8px; }
+  .workspace-topbar > div:first-child { flex-basis: 100%; }
+  .topbar-actions { width: 100%; gap: 6px; flex-wrap: wrap; }
+  .memory-label-full { display: none; }
+  .memory-label-short { display: inline; }
+  .workspace-welcome { padding: 30px 22px 20px; }
+  .workspace-welcome h2 { font-size: 35px; }
+  .composer-area { padding: 9px 14px 13px; }
+  .composer-toolbar { flex-wrap: wrap; gap: 8px; }
+  .composer-toolbar > div { flex-wrap: wrap; }
+  .composer-footnote { flex-wrap: wrap; gap: 5px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .working-dot,
+  .step-status.running {
+    animation: none;
   }
 }
 </style>

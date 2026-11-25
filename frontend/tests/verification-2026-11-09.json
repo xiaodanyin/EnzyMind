@@ -1,0 +1,309 @@
+{
+  "date": "2026-11-09",
+  "scope": "Activation of the revised Agent memory workflow; representative research examples; live verification and follow-up fixes.",
+  "prior_verification": "verification-2026-11-06.json",
+  "deployment": {
+    "workflow_id": "4L8PfUS3VVcclwLh",
+    "workflow_name": "EnzyMind Agent Workspace v2 · persistent memory & results",
+    "active": true,
+    "version_id": "7caf6067-ccd6-4de8-8b4f-ad96a5543081",
+    "active_version_id": "7caf6067-ccd6-4de8-8b4f-ad96a5543081",
+    "nodes": 39,
+    "existing_model_binding_preserved": true,
+    "model": "deepseek-v4-flash",
+    "restarted_services": [
+      "gateway",
+      "protparam",
+      "sequence_alignment",
+      "structure_predict"
+    ],
+    "final_health": {
+      "gateway": {
+        "http": 200
+      },
+      "protparam": {
+        "http": 200
+      },
+      "alignment": {
+        "http": 200
+      },
+      "structure": {
+        "http": 200
+      }
+    },
+    "original_records": {
+      "sessions": {
+        "before": 7,
+        "unchanged": 7,
+        "preserved": true
+      },
+      "turns": {
+        "before": 13,
+        "unchanged": 13,
+        "preserved": true
+      },
+      "results": {
+        "before": 19,
+        "unchanged": 19,
+        "preserved": true
+      }
+    },
+    "private_backups": "files/workspace/backups/2026-11-09/",
+    "management_credential_saved_to_repository": false
+  },
+  "build": {
+    "status": "passed",
+    "command": "cd frontend && npm run build",
+    "note": "Ketcher/Indigo and Mol* remain lazy-loaded; Vite warns about large visualization bundles."
+  },
+  "automated_tests": [
+    {
+      "suite": "Gateway API, additive persistence, memory commits, validation, prediction reuse and owned result-link repair",
+      "passed": 25,
+      "failed": 0,
+      "command": "gateway/venv/bin/python -m unittest discover -s gateway/tests -v"
+    },
+    {
+      "suite": "n8n graph and iterative compression",
+      "passed": 7,
+      "failed": 0,
+      "command": "node agent_n8n/workspace/tests/workflow.test.mjs"
+    },
+    {
+      "suite": "Built frontend browser regression",
+      "passed": 21,
+      "failed": 0,
+      "command": "cd frontend && ENZYMIND_TEST_URL=http://127.0.0.1:3012/enzymind/ npm run test:browser",
+      "scope": "All 11 model/tool pages, SVG diagrams above inputs, preserved Home/Hero, responsive layout, FASTA validation, request navigation, real Ketcher/Indigo synchronization and reaction input, real Mol* WebGL and linked residues, exports, failure records, memory restoration and 7 representative examples. Scientific responses use deterministic mocks; synthetic viewer coordinates are explicitly labelled."
+    }
+  ],
+  "final_targeted_browser_rerun": {
+    "passed": 3,
+    "failed": 0,
+    "scope": "Example selection and scroll, required result attachment, memory restoration and mobile layout. Subset of the 21-test suite, not additional unique tests."
+  },
+  "live_memory": {
+    "status": "passed",
+    "scope": "Newly activated n8n workflow + updated gateway + isolated synthetic raw-history fixture",
+    "compression_passes": 3,
+    "estimated_context_tokens": [
+      20549,
+      14309,
+      11072,
+      7837
+    ],
+    "all_five_synthetic_raw_exchanges_retained": true,
+    "following_turns_recalled_accession_marker_and_constraints": true,
+    "scientific_tool_calls": 0,
+    "after_gateway_restart": {
+      "status": "completed",
+      "error": null,
+      "tools": [],
+      "prediction_calls": [],
+      "summary_present": true,
+      "compression_count": 3,
+      "memory_revision": 3,
+      "context_tokens": 8939
+    },
+    "oversized_question": {
+      "status": "failed",
+      "error": "The current question and attached evidence exceed the context budget. Use fewer result references or a shorter question. Nothing was truncated and no prediction was launched. [line 25]",
+      "no_tools": true,
+      "summary_preserved": true,
+      "revision_preserved": true,
+      "completed_history_preserved": true,
+      "passed": true
+    }
+  },
+  "representative_cases": [
+    {
+      "id": "function",
+      "status": "passed",
+      "turn_status": "completed",
+      "seconds": 14.9,
+      "tools": [
+        {
+          "tool": "enzyme-info",
+          "status": "completed"
+        },
+        {
+          "tool": "recognize",
+          "status": "completed"
+        },
+        {
+          "tool": "ec",
+          "status": "completed"
+        }
+      ],
+      "note": "Live tool execution completed; this does not validate scientific prediction accuracy."
+    },
+    {
+      "id": "reaction",
+      "status": "passed",
+      "turn_status": "completed",
+      "seconds": 8.6,
+      "tools": [
+        {
+          "tool": "enzyme-type",
+          "status": "completed"
+        }
+      ],
+      "note": "Live tool execution completed; this does not validate scientific prediction accuracy."
+    },
+    {
+      "id": "kinetics",
+      "status": "passed",
+      "turn_status": "completed",
+      "seconds": 15.8,
+      "tools": [
+        {
+          "tool": "km",
+          "status": "completed"
+        },
+        {
+          "tool": "kcat",
+          "status": "completed"
+        },
+        {
+          "tool": "substrate",
+          "status": "completed"
+        }
+      ],
+      "note": "Live tool execution completed; this does not validate scientific prediction accuracy."
+    },
+    {
+      "id": "structure",
+      "status": "passed",
+      "turn_status": "completed",
+      "seconds": 54.8,
+      "tools": [
+        {
+          "tool": "sequence",
+          "status": "completed"
+        },
+        {
+          "tool": "parameters",
+          "status": "completed"
+        },
+        {
+          "tool": "structure",
+          "status": "completed"
+        }
+      ],
+      "note": "Live tool execution completed; this does not validate scientific prediction accuracy."
+    },
+    {
+      "id": "saved-evidence",
+      "status": "passed",
+      "turn_status": "completed",
+      "seconds": 6.7,
+      "tools": [],
+      "note": "Attached evidence was sufficient for the first answer; the subsequent follow-up used read-result. No repeated predictions."
+    },
+    {
+      "id": "sites",
+      "status": "partial",
+      "inputs": {
+        "uniprot_id": "P00698",
+        "mcsa_id": "203"
+      },
+      "available": "UniProt sites, M-CSA full record and catalytic-residue records; exact source tables checked in a saved-evidence follow-up.",
+      "unavailable": "EasIFA timed out after about 603 seconds; M-CSA record 203 has no mechanism summary.",
+      "handling": "The initial test turn was cancelled after detecting an unrequested EasIFA retry. A gateway-enforced duplicate/failure guard was then implemented, deployed and verified; no further EasIFA prediction was launched.",
+      "identifier_normalization": [
+        {
+          "tool": "mcsa-residues",
+          "query_id": "203",
+          "result_id": "00edc6a1-599d-4d83-91ba-0b5047a21552",
+          "found": true,
+          "message": "Successfully retrieved active site information for enzyme 'lysozyme (glycosyl hydrolase 22 family)' (UniProt view: 6 residues, PDB view: 6 residues).",
+          "status": "completed"
+        },
+        {
+          "tool": "mcsa-mechanism",
+          "query_id": "203",
+          "result_id": "63fff897-6936-4ad9-8790-85f3f54ebce6",
+          "found": true,
+          "message": "Found enzyme 'lysozyme (glycosyl hydrolase 22 family)' (MCSA ID: 203), but no mechanism summary information is available.",
+          "status": "completed"
+        }
+      ],
+      "followup_tools": [
+        "read-result",
+        "read-result"
+      ],
+      "source_tables_verified": true
+    },
+    {
+      "id": "similarity",
+      "status": "remote_queue_timeout",
+      "turn_status": "completed",
+      "tool_status": "failed",
+      "seconds": 807.8,
+      "rid": "F2E1D5U9014",
+      "handling": "One NCBI BLAST submission; queue timeout saved with request ID. Agent returned the limitation, with no automatic resubmission."
+    }
+  ],
+  "followup_validation": {
+    "changed_substrate_only": {
+      "predictions": [
+        {
+          "tool": "kcat",
+          "inputs": {
+            "smiles": "CCCO",
+            "enzyme_input_type": "uniprot",
+            "enzyme_query": "P00330"
+          }
+        },
+        {
+          "tool": "km",
+          "inputs": {
+            "smiles": "CCCO",
+            "enzyme_input_type": "uniprot",
+            "enzyme_query": "P00330"
+          }
+        },
+        {
+          "tool": "substrate",
+          "inputs": {
+            "smiles": "CCCO",
+            "enzyme_input_type": "uniprot",
+            "enzyme_query": "P00330"
+          }
+        }
+      ],
+      "passed": true
+    },
+    "saved_kinetic_evidence_reused": {
+      "status": "completed",
+      "read_result_calls": 3,
+      "prediction_calls": []
+    },
+    "live_prediction_retry_guard": {
+      "reused": true,
+      "same_record": true,
+      "reason": "predictor_failed",
+      "result_count": 1
+    },
+    "final_result_links": {
+      "links": 4,
+      "all_canonical": true,
+      "source_residue_tables_present": true,
+      "raw_unchanged": true
+    }
+  },
+  "visual_review": {
+    "live_frontend_port": 3010,
+    "agent_examples_desktop": "reviewed",
+    "live_predicted_structure_molstar": "Rendered actual ESMFold P00698 coordinates with WebGL and pLDDT; no browser errors.",
+    "chart_adjustment": "Long pLDDT profiles reserve extra space for data zoom and the residue-axis label."
+  },
+  "limits": [
+    "The P00698 EasIFA prediction timed out; no successful new active-site prediction was obtained in this rollout. Its page/viewer paths passed deterministic regression; an earlier live prediction passed in the Nov 6 record.",
+    "NCBI BLAST stayed queued until the service deadline. No live alignment result was obtained; queue feedback, saved failure and single-submission behavior were verified.",
+    "M-CSA record 203 resolves and has residue data but lacks a mechanism summary. Missing content is reported rather than fabricated.",
+    "Language-model interpretation is not expert-validated scientific evidence. The final M-CSA follow-up reproduced exact source residue tables, but its surrounding prose still contained an inconsistent description of the numbering offset. Consult the stored source data; the UI and regression tests do not establish scientific accuracy.",
+    "The browser suite mocks scientific upstream responses. Live cases separately establish execution, persistence and reuse, not agreement with experiments or a human usability-study outcome."
+  ],
+  "temporary_evidence_directory": "/tmp/enzymind-rollout-20261109"
+}

@@ -19,7 +19,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Form, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from models.structure_predictor import (
@@ -110,11 +111,7 @@ def parse_args():
 
 # Parse arguments (only when running as main script)
 # When imported by uvicorn, use defaults
-try:
-    args = parse_args()
-except SystemExit:
-    # When running via uvicorn, argparse may fail
-    args = None
+args = parse_args() if __name__ == "__main__" else None
 
 
 # ============== Configuration ==============
@@ -155,12 +152,13 @@ logger = logging.getLogger(__name__)
 # ============== Predictor Instance ==============
 
 predictor: Optional[StructurePredictor] = None
+backend_config: Dict[str, Any] = {"configured": False, "issues": ["Predictor not initialized"]}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
-    global predictor
+    global predictor, backend_config
     
     # Initialize predictor on startup
     try:
@@ -177,7 +175,8 @@ async def lifespan(app: FastAPI):
         logger.info("Structure predictor initialized successfully")
         
         # Check configuration
-        config = predictor.check_config()
+        config = await run_in_threadpool(predictor.check_config)
+        backend_config = config
         if not config["configured"]:
             logger.warning(f"Docker backend configuration issues: {config['issues']}")
         else:
@@ -247,7 +246,19 @@ class StructureResponse(BaseModel):
     static_path: Optional[str] = None
     sequence: Optional[str] = None
     sequence_length: Optional[int] = None
+    prediction_time: Optional[float] = None
     error: Optional[str] = None
+
+
+def prediction_response(result):
+    if result.get("success"):
+        return StructureResponse(**result)
+    code = result.get("error_code", "structure_worker_failed")
+    status = {"invalid_input": 422, "uniprot_invalid_accession": 422,
+              "uniprot_not_found": 404, "structure_busy": 503,
+              "structure_memory_exhausted": 503, "structure_unavailable": 503,
+              "structure_timeout": 504}.get(code, 502)
+    return JSONResponse({**result, "error_code": code}, status_code=status)
 
 
 class ConfigResponse(BaseModel):
@@ -267,23 +278,22 @@ class ConfigResponse(BaseModel):
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
-    config_ok = False
-    if predictor:
-        config = predictor.check_config()
-        config_ok = config["configured"]
-    
-    return {
-        "status": "healthy",
+    """Cheap readiness check; never launch a GPU container for a probe."""
+    ready = predictor is not None and backend_config["configured"]
+    from fastapi.responses import JSONResponse
+    return JSONResponse(status_code=200 if ready else 503, content={
+        "status": "healthy" if ready else "unavailable",
         "service": "structure_predict",
-        "docker_backend": config_ok,
-        "docker_image": DOCKER_IMAGE
-    }
+        "docker_backend": ready,
+        "docker_image": DOCKER_IMAGE,
+        "issues": backend_config.get("issues", []),
+    })
 
 
 @app.get("/api/config", response_model=ConfigResponse)
 async def get_config():
     """Get Docker backend configuration status."""
+    global backend_config
     if not predictor:
         return ConfigResponse(
             configured=False,
@@ -294,7 +304,8 @@ async def get_config():
             use_gpu=USE_GPU
         )
     
-    config = predictor.check_config()
+    config = await run_in_threadpool(predictor.check_config)
+    backend_config = config
     return ConfigResponse(**config)
 
 
@@ -309,25 +320,19 @@ async def predict_structure(request: StructureRequest):
     Returns:
         Prediction result with PDB path
     """
-    if not predictor:
-        return StructureResponse(
-            success=False,
-            error="Predictor not initialized"
-        )
-    
     if not request.query or not request.query.strip():
-        return StructureResponse(
-            success=False,
-            error="Query cannot be empty"
-        )
+        return prediction_response({"success": False, "error_code": "invalid_input", "error": "Query cannot be empty"})
+
+    if not predictor:
+        return prediction_response({"success": False, "error_code": "structure_unavailable", "error": "Predictor not initialized"})
     
-    result = predictor.predict_from_input(
+    result = await run_in_threadpool(predictor.predict_from_input,
         input_data=request.query,
         input_type=request.input_type,
         output_name=request.output_name
     )
     
-    return StructureResponse(**result)
+    return prediction_response(result)
 
 
 @app.post("/api/predict/structure/download")
@@ -349,14 +354,14 @@ async def predict_structure_download(request: StructureRequest):
     if not request.query or not request.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
     
-    result = predictor.predict_from_input(
+    result = await run_in_threadpool(predictor.predict_from_input,
         input_data=request.query,
         input_type=request.input_type,
         output_name=request.output_name
     )
     
     if not result["success"]:
-        raise HTTPException(status_code=500, detail=result.get("error", "Prediction failed"))
+        return prediction_response(result)
     
     pdb_path = result["pdb_path"]
     
@@ -390,25 +395,19 @@ async def predict_structure_form(
     Returns:
         Prediction result with PDB path
     """
-    if not predictor:
-        return StructureResponse(
-            success=False,
-            error="Predictor not initialized"
-        )
-    
     if not query or not query.strip():
-        return StructureResponse(
-            success=False,
-            error="Query cannot be empty"
-        )
+        return prediction_response({"success": False, "error_code": "invalid_input", "error": "Query cannot be empty"})
+
+    if not predictor:
+        return prediction_response({"success": False, "error_code": "structure_unavailable", "error": "Predictor not initialized"})
     
-    result = predictor.predict_from_input(
+    result = await run_in_threadpool(predictor.predict_from_input,
         input_data=query,
         input_type=input_type,
         output_name=output_name
     )
     
-    return StructureResponse(**result)
+    return prediction_response(result)
 
 
 @app.post("/api/predict/structure/file", response_model=StructureResponse)
@@ -426,22 +425,16 @@ async def predict_structure_file(
     Returns:
         Prediction result with PDB path
     """
-    if not predictor:
-        return StructureResponse(
-            success=False,
-            error="Predictor not initialized"
-        )
-    
     if not file:
-        return StructureResponse(
-            success=False,
-            error="No file uploaded"
-        )
+        return prediction_response({"success": False, "error_code": "invalid_input", "error": "No file uploaded"})
+
+    if not predictor:
+        return prediction_response({"success": False, "error_code": "structure_unavailable", "error": "Predictor not initialized"})
     
     content = await file.read()
-    result = predictor.predict_from_file(content, output_name)
+    result = await run_in_threadpool(predictor.predict_from_file, content, output_name)
     
-    return StructureResponse(**result)
+    return prediction_response(result)
 
 
 @app.post("/predict/structure")
@@ -469,10 +462,10 @@ async def predict_structure_legacy(
             protein = query.strip()
         
         # Process input
-        sequence = classify_input_v2(protein)
+        sequence = await run_in_threadpool(classify_input_v2, protein)
         
         # Predict
-        result = predictor.predict_from_sequence(sequence)
+        result = await run_in_threadpool(predictor.predict_from_sequence, sequence)
         
         if result["success"]:
             return {"result": result["static_path"]}
@@ -491,7 +484,7 @@ async def process_sequence(request: StructureRequest):
     Useful for validating input before expensive prediction.
     """
     try:
-        sequence = classify_input_v2(request.query)
+        sequence = await run_in_threadpool(classify_input_v2, request.query)
         return {
             "success": True,
             "sequence": sequence,

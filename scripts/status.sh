@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Enzymind 服务状态检查脚本
+# EnzyMind 服务状态检查脚本
 #
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,7 +36,7 @@ declare -A SERVICES=(
 )
 
 echo -e "${BLUE}╔═══════════════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║           Enzymind 微服务状态                              ║${NC}"
+echo -e "${BLUE}║           EnzyMind 微服务状态                              ║${NC}"
 echo -e "${BLUE}╚═══════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
@@ -48,29 +48,18 @@ STOPPED=0
 
 for service in $(echo "${!SERVICES[@]}" | tr ' ' '\n' | sort); do
     port=${SERVICES[$service]}
-    pid_file="$PIDS_DIR/${service}.pid"
-    
-    if [ -f "$pid_file" ]; then
-        pid=$(cat "$pid_file")
-        if kill -0 $pid 2>/dev/null; then
-            printf "%-20s %-8s %-8s ${GREEN}%-10s${NC}\n" "$service" "$port" "$pid" "运行中"
-            ((RUNNING++))
-        else
-            printf "%-20s %-8s %-8s ${RED}%-10s${NC}\n" "$service" "$port" "-" "已停止"
-            ((STOPPED++))
-        fi
+    pid=$(lsof -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | head -1)
+    method=GET
+    [ "$service" = "query_mechanism_mcsa" ] && method=POST
+    if curl --noproxy '*' -fsS --max-time 5 -X "$method" "http://127.0.0.1:$port/health" >/dev/null 2>&1; then
+        printf "%-20s %-8s %-8s ${GREEN}%-10s${NC}\n" "$service" "$port" "${pid:--}" "HTTP 就绪"
+        ((RUNNING++))
     else
-        # 检查端口是否被占用
-        port_pid=$(lsof -ti:$port 2>/dev/null)
-        if [ -n "$port_pid" ]; then
-            printf "%-20s %-8s %-8s ${YELLOW}%-10s${NC}\n" "$service" "$port" "$port_pid" "端口占用"
-            ((RUNNING++))
-        else
-            printf "%-20s %-8s %-8s ${RED}%-10s${NC}\n" "$service" "$port" "-" "未启动"
-            ((STOPPED++))
-        fi
+        printf "%-20s %-8s %-8s ${RED}%-10s${NC}\n" "$service" "$port" "${pid:--}" "未就绪"
+        ((STOPPED++))
     fi
 done
 
 echo ""
-echo -e "运行中: ${GREEN}$RUNNING${NC}  停止: ${RED}$STOPPED${NC}"
+echo -e "HTTP 就绪: ${GREEN}$RUNNING${NC}  未就绪: ${RED}$STOPPED${NC}"
+[ "$STOPPED" -eq 0 ]

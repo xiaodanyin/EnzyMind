@@ -1,26 +1,26 @@
-# Substrate Prediction Service
+# Substrate Determination Service
 
-## Introduction
+## Overview
 
-Substrate Prediction Service is used to predict whether there is an enzyme-substrate relationship between a given enzyme and molecule. The service is based on the MEI (Molecular Enzyme Interaction) model, combining ESM protein embeddings and molecular graph neural networks for prediction.
+This service predicts enzyme–substrate compatibility with the MEI (Molecular Enzyme Interaction) model, combining ESM protein embeddings with a molecular graph neural network.
 
 ## Features
 
-- Support for multiple enzyme input formats:
+- Supported protein input formats:
   - Amino acid sequence string
-  - UniProt ID (automatically fetch sequence from UniProt)
-  - FASTA format content
+  - UniProt accession (resolved through the shared UniProt client)
+  - FASTA content
 
 - Molecular input:
   - SMILES string
 
-## API Endpoints
+## API endpoints
 
 ### POST /api/predict/substrate
 
-Substrate prediction endpoint (JSON format input).
+Substrate prediction endpoint (JSON input).
 
-**Request Body (JSON):**
+**Request body (JSON):**
 ```json
 {
     "smiles": "CC(=O)OC1=CC=CC=C1C(=O)O",
@@ -29,12 +29,12 @@ Substrate prediction endpoint (JSON format input).
 }
 ```
 
-**Parameter Description:**
-- `smiles` (required): SMILES string of substrate molecule
-- `enzyme_input_type` (required): Enzyme input type, options: `fasta`, `sequence`, `uniprot`
-- `enzyme_query` (required): Enzyme query string (amino acid sequence, UniProt ID or FASTA format content)
+**Parameters:**
+- `smiles` (required): Substrate SMILES
+- `enzyme_input_type` (required): Protein input type: `fasta`, `sequence`, or `uniprot`
+- `enzyme_query` (required): Protein query (amino acid sequence, UniProt accession, or FASTA)
 
-**Return:**
+**Response:**
 ```json
 {
     "result": {
@@ -58,36 +58,38 @@ Service information endpoint.
 cd services/substrate_predict
 python -m venv venv
 source venv/bin/activate  # Linux/Mac
-# or venv\Scripts\activate  # Windows
+# Or venv\Scripts\activate  # Windows
 bash ./install_torch.sh
 bash .install_dgl.sh
 pip install -r requirements.txt
 ```
 
+
+
 ## Running
 
 ```bash
 python main.py
-# or
+# Or
 uvicorn main:app --host 0.0.0.0 --port 18903 --reload
 ```
 
-## Testing
+## Tests
 
 ```bash
 pytest tests/ -v
 ```
 
-## Usage Examples
+## Examples
 
-### Using the Client
+### Python client
 
 ```python
 from client import SubstratePredictionClient
 
 client = SubstratePredictionClient(base_url="http://localhost:18903")
 
-# Predict with sequence
+# Predict from a sequence
 result = client.predict_with_sequence(
     smiles="CC(=O)OC1=CC=CC=C1C(=O)O",  # Aspirin
     sequence="MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQ..."
@@ -95,17 +97,17 @@ result = client.predict_with_sequence(
 print(f"Is substrate: {result['result']['is_substrate']}")
 print(f"Confidence: {result['result']['confidence']}")
 
-# Predict with UniProt ID
+# Predict from a UniProt accession
 result = client.predict_with_uniprot(
     smiles="CC(=O)OC1=CC=CC=C1C(=O)O",
     uniprot_id="P12345"
 )
 ```
 
-### Using curl
+### curl
 
 ```bash
-# Predict with sequence
+# Predict from a sequence
 curl -X POST "http://localhost:18903/api/predict/substrate" \
     -H "Content-Type: application/json" \
     -d '{
@@ -114,7 +116,7 @@ curl -X POST "http://localhost:18903/api/predict/substrate" \
         "enzyme_query": "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQ"
     }'
 
-# Predict with UniProt ID
+# Predict from a UniProt accession
 curl -X POST "http://localhost:18903/api/predict/substrate" \
     -H "Content-Type: application/json" \
     -d '{
@@ -123,7 +125,7 @@ curl -X POST "http://localhost:18903/api/predict/substrate" \
         "enzyme_query": "P12345"
     }'
 
-# Predict with FASTA format content
+# Predict from FASTA content
 curl -X POST "http://localhost:18903/api/predict/substrate" \
     -H "Content-Type: application/json" \
     -d '{
@@ -133,40 +135,40 @@ curl -X POST "http://localhost:18903/api/predict/substrate" \
     }'
 ```
 
-## Directory Structure
+## Directory layout
 
 ```
 substrate_predict/
-├── main.py              # FastAPI application main file
+├── main.py              # FastAPI application
 ├── client.py            # API client
-├── requirements.txt     # Dependencies list
+├── requirements.txt     # Dependencies
 ├── README.md            # Documentation
 ├── models/
 │   ├── __init__.py
-│   ├── substrate_predictor.py  # Substrate predictor model
+│   ├── substrate_predictor.py  # Substrate compatibility model
 │   ├── mol_gnn.py              # Molecular graph neural network
 │   └── graph_dataset.py        # Graph dataset processing
 └── tests/
     ├── __init__.py
-    └── test_api.py      # Test cases
+    └── test_api.py      # Tests
 ```
 
 ## Port
 
 Default port: 18903
 
-## Model Description
+## Model overview
 
-### MEI Model
+### MEI model
 
-MEI (Molecular Enzyme Interaction) model is a deep learning model for predicting enzyme-substrate relationships:
+MEI (Molecular Enzyme Interaction) is a deep learning model for enzyme–substrate compatibility:
 
-1. **Enzyme Embedding Processing**: Use ESM1b to extract protein sequence embeddings, then apply LayerNormNet for dimensionality reduction
-2. **Molecular Embedding**: Use Graph Neural Network (GNN) to extract molecular features from SMILES strings
-3. **Interaction Prediction**: Fuse enzyme and molecular features through attention mechanism, finally predict whether enzyme-substrate relationship exists
+1. **Protein embeddings:** extract ESM-1b sequence embeddings and reduce their dimensionality with LayerNormNet.
+2. **Molecular embeddings:** extract molecular features from SMILES with a graph neural network (GNN).
+3. **Interaction prediction:** combine protein and molecular features through attention to predict compatibility.
 
-### Dependent Model Files
+### Required model files
 
-- `model.pt`: MEI main model weights
-- `mol_ra/saved_3/gcn_1024/`: Molecular GNN model and feature encoder
-- `split100.pth`: Enzyme embedding processing model weights
+- `model.pt`: Main MEI model weights
+- `mol_ra/saved_3/gcn_1024/`: Molecular GNN model and feature encoders
+- `split100.pth`: Protein embedding model weights

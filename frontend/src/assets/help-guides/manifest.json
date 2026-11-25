@@ -1,0 +1,219 @@
+{
+  "created": "2026-11-13",
+  "dimensions": [
+    2200,
+    1550
+  ],
+  "source": "Approved guide artwork from the current EnzyMind frontend, captured with public example inputs. Screenshot excerpts are arranged for readability.",
+  "guides": [
+    {
+      "id": "recognize",
+      "title": "Enzyme Recognition",
+      "category": "Prediction",
+      "name": "01-enzyme-recognition",
+      "svg": "source/01-enzyme-recognition.svg",
+      "route": "/predict/enzyme",
+      "example": "P00761 · UniProt accession",
+      "inputs": {
+        "protein": "P00761"
+      },
+      "resultStatus": "Completed",
+      "capturedAt": "2026-11-13T07:45:50.325Z",
+      "inputExcerpt": false,
+      "image": "01-enzyme-recognition.webp"
+    },
+    {
+      "id": "ec",
+      "title": "EC Number Prediction",
+      "category": "Prediction",
+      "name": "02-ec-number-prediction",
+      "svg": "source/02-ec-number-prediction.svg",
+      "route": "/predict/ec",
+      "example": "P00761 · UniProt accession",
+      "inputs": {
+        "protein": "P00761"
+      },
+      "resultStatus": "Completed",
+      "capturedAt": "2026-11-13T07:44:01.121Z",
+      "inputExcerpt": false,
+      "image": "02-ec-number-prediction.webp"
+    },
+    {
+      "id": "enzyme-type",
+      "title": "Enzyme Recommendation",
+      "category": "Prediction",
+      "name": "03-enzyme-recommendation",
+      "svg": "source/03-enzyme-recommendation.svg",
+      "route": "/predict/recommendation",
+      "example": "Reaction SMILES example",
+      "inputs": {
+        "smiles": "CC(=O)O.CCO>>CC(=O)OCC.O"
+      },
+      "resultStatus": "Completed",
+      "capturedAt": "2026-11-13T07:43:56.946Z",
+      "inputExcerpt": false,
+      "image": "03-enzyme-recommendation.webp"
+    },
+    {
+      "id": "substrate",
+      "title": "Substrate Determination",
+      "category": "Prediction",
+      "name": "04-substrate-determination",
+      "svg": "source/04-substrate-determination.svg",
+      "route": "/predict/substrate",
+      "example": "P00761 + substrate SMILES",
+      "inputs": {
+        "protein": "P00761",
+        "smiles": "CC(=O)NC(Cc1ccc(O)cc1)C(=O)O"
+      },
+      "resultStatus": "Completed",
+      "capturedAt": "2026-11-13T07:44:12.462Z",
+      "inputExcerpt": true,
+      "image": "04-substrate-determination.webp"
+    },
+    {
+      "id": "kcat",
+      "title": "Kcat Prediction",
+      "category": "Prediction",
+      "name": "05-kcat-prediction",
+      "svg": "source/05-kcat-prediction.svg",
+      "route": "/predict/kcat",
+      "example": "P00761 + substrate SMILES",
+      "inputs": {
+        "protein": "P00761",
+        "smiles": "CC(=O)NC(Cc1ccc(O)cc1)C(=O)O"
+      },
+      "resultStatus": "Completed",
+      "capturedAt": "2026-11-13T07:44:16.324Z",
+      "inputExcerpt": true,
+      "image": "05-kcat-prediction.webp"
+    },
+    {
+      "id": "km",
+      "title": "Km Prediction",
+      "category": "Prediction",
+      "name": "06-km-prediction",
+      "svg": "source/06-km-prediction.svg",
+      "route": "/predict/km",
+      "example": "P00761 + substrate SMILES",
+      "inputs": {
+        "protein": "P00761",
+        "smiles": "CC(=O)NC(Cc1ccc(O)cc1)C(=O)O"
+      },
+      "resultStatus": "Completed",
+      "capturedAt": "2026-11-13T07:44:26.590Z",
+      "inputExcerpt": true,
+      "image": "06-km-prediction.webp"
+    },
+    {
+      "id": "active-sites",
+      "title": "Active Site Prediction",
+      "category": "Prediction",
+      "name": "07-active-site-prediction",
+      "svg": "source/07-active-site-prediction.svg",
+      "route": "/predict/activesite",
+      "example": "P00761 · UniProt accession",
+      "inputs": {
+        "protein": "P00761"
+      },
+      "resultStatus": "Completed",
+      "capturedAt": "2026-11-13T07:44:02.528Z",
+      "inputExcerpt": false,
+      "image": "07-active-site-prediction.webp"
+    },
+    {
+      "id": "enzyme-info",
+      "title": "Enzyme Information",
+      "category": "Utility",
+      "name": "08-enzyme-information",
+      "svg": "source/08-enzyme-information.svg",
+      "route": "/utility/enzyme-info",
+      "example": "P00761 · UniProt accession",
+      "inputs": {
+        "protein": "P00761"
+      },
+      "resultStatus": "Completed",
+      "capturedAt": "2026-11-13T07:44:34.377Z",
+      "inputExcerpt": false,
+      "image": "08-enzyme-information.webp"
+    },
+    {
+      "id": "parameters",
+      "title": "Protein Parameters",
+      "category": "Utility",
+      "name": "09-protein-parameters",
+      "svg": "source/09-protein-parameters.svg",
+      "route": "/utility/parameters",
+      "example": "P00761 · UniProt accession",
+      "inputs": {
+        "protein": "P00761"
+      },
+      "resultStatus": "Completed",
+      "capturedAt": "2026-11-13T07:44:27.444Z",
+      "inputExcerpt": false,
+      "chartNote": "The chart was resized for the guide; all 20 residues and returned values are unchanged.",
+      "image": "09-protein-parameters.webp"
+    },
+    {
+      "id": "structure",
+      "title": "Structure Prediction",
+      "category": "Utility",
+      "name": "10-structure-prediction",
+      "svg": "source/10-structure-prediction.svg",
+      "route": "/utility/structure",
+      "example": "30-aa protein sequence",
+      "inputs": {
+        "protein": "FVNQHLCGSHLVEALYLVCGERGFFYTPKA"
+      },
+      "resultStatus": "Completed",
+      "capturedAt": "2026-11-13T07:44:02.129Z",
+      "inputExcerpt": false,
+      "image": "10-structure-prediction.webp"
+    },
+    {
+      "id": "blast",
+      "title": "Sequence Alignment",
+      "category": "Utility",
+      "name": "11-sequence-alignment",
+      "svg": "source/11-sequence-alignment.svg",
+      "route": "/utility/alignment",
+      "example": "P00761 · local UniProt search, with P08426 selected",
+      "inputs": {
+        "query": "P00761",
+        "database": "local_uniprot",
+        "max_results": 5
+      },
+      "resultStatus": "Completed",
+      "capturedAt": "2026-11-23",
+      "inputExcerpt": true,
+      "resultNote": "Real local NCBI BLAST+ search on the reviewed UniProt snapshot dated 2026-06-14 (575,503 sequences). Original three-step guide layout restored: method across the top, input at lower left, results at lower right. The five returned segments are unchanged; P08426 is selected with 98.7% query coverage, 86.4% identity and 31 residue differences. The native current UI displays the saved response using browser-local fixtures. Screenshots are rearranged excerpts: first three hits, first 80-column alignment block, first two difference rows. Expanded differences and JSON export were verified.",
+      "image": "11-sequence-alignment.webp",
+      "databaseRelease": "EasIFA UniProtKB/Swiss-Prot snapshot 2026-06-14",
+      "responseSha256": "255c5342ed96b2ad1e2e3a15ec2d3ed159dca23f9514a11b9df0aef656bd11c5"
+    },
+    {
+      "id": "workspace",
+      "title": "Workspace",
+      "category": "Workspace",
+      "name": "12-workspace",
+      "svg": "source/12-workspace.svg",
+      "route": "/agent",
+      "example": "Q0ZPV7 · carboxylesterase 1, sequence, 3D/site visualization and Python composition analysis",
+      "inputs": {
+        "protein": "Q0ZPV7",
+        "question": "How do the sequence and 3D structure of carboxylesterase 1 (UniProt Q0ZPV7) explain its ester-hydrolyzing activity? Identify key residues, distinguish evidence from predictions, and support the analysis with protein visualizations, quantitative plots and downloadable data."
+      },
+      "resultStatus": "Completed protein query and site prediction; local sequence calculation",
+      "capturedAt": "2026-11-23",
+      "resultNote": "Browser-local fixtures in the current frontend using actual Q0ZPV7 UniProt and completed EnzyMind responses. The full 335-residue sequence agrees with the platform-supplied AlphaFold coordinates; original numbering is retained. The sequence card shows residues 1–150. The structure excerpt uses the catalytic-site filter. Site labels come from the EasIFA all_features prediction, not experimental validation; site scores and model pLDDT are separate. Displayed Python code was executed locally to generate composition PNG and CSV (20 residue types, 335 residues). This illustrates the workflow rather than replaying an Agent conversation. Screenshots are arranged excerpts; the CSV preview shows its first rows.",
+      "image": "12-workspace.webp",
+      "sourceUrls": [
+        "https://rest.uniprot.org/uniprotkb/Q0ZPV7.json",
+        "https://www.uniprot.org/uniprotkb/Q0ZPV7/entry"
+      ],
+      "responseSha256": "2332af0981f072d9ebd72d6f44390377da6aaeff80d253dad62efc93707feaba",
+      "modelSha256": "0d583fd6567c1692e30ae84d85ba469ba2d2e2e90fcbc23679b504acfee3340c",
+      "compositionCsvSha256": "88ae01a38deea82e08ed477b3d20d97da80d075093c58d53a487a538e9402d3c"
+    }
+  ]
+}

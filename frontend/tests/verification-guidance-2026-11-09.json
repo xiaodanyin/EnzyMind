@@ -1,0 +1,56 @@
+{
+  "date": "2026-11-09",
+  "feature": "Dismissible retention notices and automatic first-visit page guides",
+  "implementation": {
+    "coverage": [
+      "Home",
+      "All 11 model/tool pages",
+      "Agent",
+      "Results library",
+      "Result detail page type",
+      "Help"
+    ],
+    "retention_notices": "Dismissed banners collapse to a small policy/expiry-date link. Generic notices share a preference; result-specific notices are remembered separately. JSON export and server retention are unchanged.",
+    "page_guides": "Automatic once per browser/page type, with close/skip and manual replay. Editing input before the initial prompt defers it. Browser Back removes the modal and restores page interaction.",
+    "previews": "Animated expansion, molecule/reaction drawing, protein structure, result charts, data panels, Agent memory, examples and exports; explicitly illustrative and no inference requests or input mutations.",
+    "accessibility": [
+      "Focus trap and restoration",
+      "Escape to close",
+      "Keyboard step navigation",
+      "Reduced-motion support",
+      "Mobile target positioning",
+      "Mobile memory controls"
+    ],
+    "preferences": "enzymind_ui_preferences_v1; independent of workspace access credentials; at most 100 dismissed notice keys and 100 seen-page keys; in-memory fallback if storage is blocked"
+  },
+  "validation": {
+    "production_build": {
+      "passed": true,
+      "warnings": "Existing third-party bundle size and use-client warnings"
+    },
+    "frontend_unit_tests": {
+      "passed": 16
+    },
+    "built_site_browser": {
+      "passed": 44,
+      "failed": 0,
+      "first_visit_and_preferences_cases": 17,
+      "existing_function_cases": 27,
+      "seconds": 121.7
+    },
+    "running_frontend_browser": {
+      "passed": 3,
+      "failed": 0,
+      "url": "http://127.0.0.1:3010/enzymind/"
+    },
+    "visual_review": [
+      "Ketcher expansion on desktop",
+      "Reaction guide on mobile with unobscured target",
+      "Agent memory preview",
+      "Compact Agent notices on mobile"
+    ],
+    "scientific_data": "Deterministic browser fixtures; real Ketcher/Indigo and Mol* rendering. The change does not alter scientific model behavior."
+  },
+  "backend_changes": false,
+  "documentation": "README.md and Help page updated"
+}

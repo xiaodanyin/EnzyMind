@@ -5,6 +5,7 @@ from unittest.mock import patch, MagicMock
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from main import app
+from shared.uniprot import UniProtDownloadError
 
 client = TestClient(app)
 
@@ -25,12 +26,9 @@ class TestHealthEndpoint:
         assert response.status_code == 200
 
 class TestKineticsEndpoint:
-    @patch("models.kinetic_query.requests.get")
+    @patch("models.kinetic_query.uniprot_json_client.fetch_json")
     def test_query_success(self, mock_get):
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = MOCK_RESPONSE
-        mock_get.return_value = mock_response
+        mock_get.return_value = MOCK_RESPONSE
         
         response = client.post("/api/query/kinetics", json={"query": "P12345"})
         assert response.status_code == 200
@@ -38,11 +36,9 @@ class TestKineticsEndpoint:
         assert data["success"] is True
         assert len(data["km"]) == 1
 
-    @patch("models.kinetic_query.requests.get")
+    @patch("models.kinetic_query.uniprot_json_client.fetch_json")
     def test_not_found(self, mock_get):
-        mock_response = MagicMock()
-        mock_response.status_code = 404
-        mock_get.return_value = mock_response
+        mock_get.side_effect = UniProtDownloadError("UniProt accession not found", "uniprot_not_found", False)
         
         response = client.post("/api/query/kinetics", json={"query": "INVALID"})
         assert response.status_code == 200

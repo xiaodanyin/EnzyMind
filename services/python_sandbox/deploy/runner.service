@@ -1,0 +1,19 @@
+[Unit]
+Description=EnzyMind Python sandbox runner
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/enzymind-sandbox
+EnvironmentFile=%h/.config/enzymind-python/runner.env
+ExecStart=%h/enzymind-sandbox/.venv/bin/python -m services.python_sandbox.runner
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+UMask=0077
+NoNewPrivileges=true
+LimitCORE=0
+
+[Install]
+WantedBy=default.target

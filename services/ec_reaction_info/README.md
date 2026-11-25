@@ -1,8 +1,8 @@
-# EC Reaction Info Service - Catalytic Activity Microservice
+# Catalytic Activity Query Service
 
 ## Overview
 
-The EC Reaction Info Service queries protein catalytic activity information, retrieving EC numbers, Rhea IDs, and reaction descriptions from the UniProt database.
+This service retrieves catalytic-activity annotations from UniProt, including EC numbers, Rhea identifiers and reaction descriptions.
 
 ## Port
 
@@ -11,28 +11,28 @@ The EC Reaction Info Service queries protein catalytic activity information, ret
 ## Features
 
 - Query protein catalytic activity
-- Retrieve EC numbers and Rhea IDs
-- Batch queries
-- File upload for batch queries
+- Retrieve EC numbers and Rhea identifiers
+- Batch query support
+- Batch queries from an uploaded file
 - Markdown output
 
-## API Endpoints
+## API endpoints
 
 | Endpoint | Method | Description |
-|----------|--------|-------------|
+|------|------|------|
 | `/health` | GET | Health check |
-| `/api/query/catalytic-activity` | POST | Catalytic activity query (JSON) |
-| `/api/query/catalytic-activity/form` | POST | Catalytic activity query (form) |
-| `/api/query/catalytic-activity/batch` | POST | Batch query |
-| `/api/query/catalytic-activity/file` | POST | File upload batch query |
-| `/query/catalytic_activity` | POST | Legacy-compatible API |
+| `/api/query/catalytic-activity` | POST | Catalytic-activity query (JSON) |
+| `/api/query/catalytic-activity/form` | POST | Query using form fields |
+| `/api/query/catalytic-activity/batch` | POST | Batch queries |
+| `/api/query/catalytic-activity/file` | POST | Batch queries from an uploaded file |
+| `/query/catalytic_activity` | POST | Legacy API compatibility |
 
 ## Installation
 
 ### 1. Create a virtual environment
 
 ```bash
-cd /path/to/Enzymind/services/ec_reaction_info
+cd /path/to/EnzyMind/services/ec_reaction_info
 python3 -m venv venv
 source venv/bin/activate
 ```
@@ -49,9 +49,9 @@ pip install -r requirements.txt
 python main.py
 ```
 
-The service will start at http://localhost:18913.
+The service runs at http://localhost:18913.
 
-## Usage Examples
+## Examples
 
 ### Health check
 
@@ -59,7 +59,7 @@ The service will start at http://localhost:18913.
 curl http://localhost:18913/health
 ```
 
-### Catalytic activity query
+### Query catalytic activity
 
 ```bash
 curl -X POST http://localhost:18913/api/query/catalytic-activity \
@@ -85,7 +85,7 @@ Response:
 }
 ```
 
-### Batch query
+### Batch queries
 
 ```bash
 curl -X POST http://localhost:18913/api/query/catalytic-activity/batch \
@@ -100,7 +100,7 @@ curl -X POST http://localhost:18913/api/query/catalytic-activity/file \
   -F "file=@ids.txt"
 ```
 
-## API Docs
+## API documentation
 
 - **Swagger UI**: http://localhost:18913/docs
 - **ReDoc**: http://localhost:18913/redoc
@@ -112,10 +112,30 @@ source venv/bin/activate
 pytest tests/ -v
 ```
 
-## Data Source
+## Data sources
 
-All catalytic activity information comes from the [UniProt](https://www.uniprot.org/) database.
+Catalytic-activity annotations come from [UniProt](https://www.uniprot.org/), using the shared local-first resolver.
 
 ## License
 
 MIT License
+
+## EC-number compatibility endpoint
+
+`POST /api/query/ec-info` accepts `{"query":"3.2.1.17"}` (also `ec_number`),
+returning the accepted name, hierarchy, catalytic activity, entry status and
+source metadata. Partial classes such as `3.2.-.-` have no invented enzyme name
+or reaction. Transferred and deleted entries are explicitly marked. Unknown
+codes return `success: false` with `code: ec_not_in_reference`; malformed inputs
+return HTTP 422. A UniProt accession (`query` or `uniprot_id`) uses the existing
+catalytic-activity query.
+
+The service snapshot and frontend labels come from the same official ENZYME
+release, with source SHA-256 hashes and SIB CC BY 4.0 attribution. To update both
+from an unmodified matching pair of `enzyme.dat` and `enzclass.txt`, run from the
+repository root:
+
+```bash
+python3 scripts/build_ec_reference.py /path/to/enzyme-source
+python3 scripts/build_ec_reference.py /path/to/enzyme-source --include-activities --output services/ec_reaction_info/data/ec-reference.json
+```

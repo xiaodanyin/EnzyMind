@@ -15,6 +15,8 @@ import requests
 import pandas as pd
 import time
 from typing import Optional, List, Tuple, Set, Dict, Any
+from urllib.parse import quote
+from .easifa_access import configured_api_base, load_owner_key, request_owner, SESSION_HEADER
 
 
 class ActiveSitesPredictor:
@@ -28,19 +30,155 @@ class ActiveSitesPredictor:
     and results must be polled for completion.
     """
     
-    # API Base URL
-    API_BASE = "https://cadd.zju.edu.cn/easifa/api"
+    # EasIFA API URLs in failover order.
+    API_BASES = (
+        "https://cadd.drugflow.com/easifa/api",
+        "https://cadd.zju.edu.cn/easifa/api",
+        "https://cadd.iddd.group/easifa/api",
+    )
+    API_BASE = API_BASES[0]
     
-    def __init__(self, api_base: str = None, timeout: int = 30):
+    def __init__(self, api_base: str = None, timeout: int = 30, *, session_key=None, session_file=None):
         """
         Initialize the predictor.
         
         Args:
-            api_base: EasIFA API base URL (default: https://cadd.zju.edu.cn/easifa/api)
+            api_base: EasIFA API base URL (default: https://cadd.drugflow.com/easifa/api)
             timeout: Request timeout in seconds (default: 30)
         """
-        self.api_base = api_base or self.API_BASE
+        api_base = api_base or configured_api_base()
+        if api_base:
+            # Preserve the existing custom-endpoint behavior when explicitly set.
+            self.api_bases = (api_base.rstrip("/"),)
+        else:
+            self.api_bases = tuple(base.rstrip("/") for base in self.API_BASES)
+        self.api_base = self.api_bases[0]
         self.timeout = timeout
+        self._session_key = session_key
+        self._session_file = session_file
+        self._saved_owner = None
+
+    def _ordered_api_bases(self) -> List[str]:
+        """Return API bases with the last successful endpoint tried first."""
+        return [self.api_base] + [
+            base for base in self.api_bases if base != self.api_base
+        ]
+
+    def _rewind_request_files(self, files: Optional[Dict[str, Any]]) -> None:
+        """Rewind uploaded files before retrying a request on a backup endpoint."""
+        if not files:
+            return
+
+        for file_value in files.values():
+            file_object = (
+                file_value[1]
+                if isinstance(file_value, tuple) and len(file_value) > 1
+                else file_value
+            )
+            if hasattr(file_object, "seek"):
+                file_object.seek(0)
+
+    def _request_json_with_fallback(
+        self,
+        request_func,
+        endpoint: str,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """Request JSON from EasIFA, falling back across the configured API URLs."""
+        owner = request_owner.get()
+        if owner is None:
+            if self._saved_owner is None:
+                self._saved_owner = load_owner_key(self.api_bases, session_key=self._session_key,
+                                                   session_file=self._session_file)
+            owner = self._saved_owner
+        # Per-call headers keep concurrent users isolated on the shared predictor.
+        headers = requests.structures.CaseInsensitiveDict(kwargs.pop("headers", None) or {})
+        headers[SESSION_HEADER] = owner
+        kwargs["headers"] = headers
+        kwargs["allow_redirects"] = False
+        last_error = None
+
+        for api_base in self._ordered_api_bases():
+            try:
+                self._rewind_request_files(kwargs.get("files"))
+                response = request_func(f"{api_base}/{endpoint.lstrip('/')}", **kwargs)
+            except Exception as exc:
+                last_error = {"success": False, "error": str(exc)}
+                continue
+
+            if response.status_code != 200:
+                last_error = {
+                    "success": False,
+                    "error": self._format_http_error(response)
+                }
+                continue
+
+            parse_result = self._parse_json_response(response, api_base=api_base)
+            if not parse_result.get("success"):
+                last_error = parse_result
+                continue
+
+            self.api_base = api_base
+            return parse_result
+
+        return last_error or {
+            "success": False,
+            "error": "No EasIFA API endpoint is configured"
+        }
+
+    def _response_preview(self, response: requests.Response, max_length: int = 200) -> str:
+        """Return a short single-line preview of the response body."""
+        text = getattr(response, "text", "")
+        if text is None:
+            return "<empty body>"
+
+        preview = " ".join(str(text).split())
+        if not preview:
+            return "<empty body>"
+
+        if len(preview) > max_length:
+            return f"{preview[:max_length]}..."
+        return preview
+
+    def _format_http_error(self, response: requests.Response) -> str:
+        """Build a readable error message for non-200 downstream responses."""
+        parts = [f"Status code {response.status_code}"]
+
+        location = getattr(response, "headers", {}).get("location")
+        if location:
+            parts.append(f"location={location}")
+
+        body_preview = self._response_preview(response)
+        if body_preview:
+            parts.append(f"body={body_preview}")
+        if response.status_code == 404:
+            parts.append("Private jobs require the original X-Easifa-Session key or session cookie; a new key cannot restore lost access")
+
+        return "; ".join(parts)
+
+    def _parse_json_response(
+        self,
+        response: requests.Response,
+        api_base: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Safely parse a downstream JSON response with a helpful error message."""
+        try:
+            return {"success": True, "data": response.json()}
+        except ValueError:
+            content_type = getattr(response, "headers", {}).get("content-type", "unknown")
+            response_url = getattr(
+                response,
+                "url",
+                f"{api_base or self.api_base}/<unknown>"
+            )
+            return {
+                "success": False,
+                "error": (
+                    "Expected JSON from EasIFA but received a non-JSON response "
+                    f"(status={response.status_code}, content_type={content_type}, "
+                    f"url={response_url}, body={self._response_preview(response)})"
+                )
+            }
     
     # ============== Public Submission Methods ==============
     
@@ -57,23 +195,21 @@ class ActiveSitesPredictor:
             Dictionary with job_id or error
         """
         try:
-            response = requests.post(
-                f"{self.api_base}/from_uniprot",
+            parse_result = self._request_json_with_fallback(
+                requests.post,
+                "from_uniprot",
                 headers={"Content-Type": "application/json"},
                 json={
                     "uniprot_id": uniprot_id,
                     "use_celery": use_celery
                 },
-                timeout=self.timeout
+                timeout=self.timeout,
+                allow_redirects=False
             )
-            
-            if response.status_code != 200:
-                return {
-                    "success": False,
-                    "error": f"Status code {response.status_code}: {response.text}"
-                }
-            
-            data = response.json()
+            if not parse_result.get("success"):
+                return parse_result
+
+            data = parse_result["data"]
             
             if "error" in data:
                 return {"success": False, "error": data["error"]}
@@ -113,19 +249,17 @@ class ActiveSitesPredictor:
             if rxn_smiles:
                 form_data["rxn_smiles"] = rxn_smiles
             
-            response = requests.post(
-                f"{self.api_base}/from_sequence",
+            parse_result = self._request_json_with_fallback(
+                requests.post,
+                "from_sequence",
                 data=form_data,
-                timeout=self.timeout
+                timeout=self.timeout,
+                allow_redirects=False
             )
-            
-            if response.status_code != 200:
-                return {
-                    "success": False,
-                    "error": f"Status code {response.status_code}: {response.text}"
-                }
-            
-            data = response.json()
+            if not parse_result.get("success"):
+                return parse_result
+
+            data = parse_result["data"]
             
             if "error" in data:
                 return {"success": False, "error": data["error"]}
@@ -168,20 +302,18 @@ class ActiveSitesPredictor:
                 if rxn_smiles:
                     form_data["rxn_smiles"] = rxn_smiles
                 
-                response = requests.post(
-                    f"{self.api_base}/from_structure",
+                parse_result = self._request_json_with_fallback(
+                    requests.post,
+                    "from_structure",
                     files=files,
                     data=form_data,
-                    timeout=self.timeout
+                    timeout=self.timeout,
+                    allow_redirects=False
                 )
-            
-            if response.status_code != 200:
-                return {
-                    "success": False,
-                    "error": f"Status code {response.status_code}: {response.text}"
-                }
-            
-            data = response.json()
+            if not parse_result.get("success"):
+                return parse_result
+
+            data = parse_result["data"]
             
             if "error" in data:
                 return {"success": False, "error": data["error"]}
@@ -212,18 +344,16 @@ class ActiveSitesPredictor:
             Dictionary with job status
         """
         try:
-            response = requests.get(
-                f"{self.api_base}/job/{job_id}",
-                timeout=self.timeout
+            parse_result = self._request_json_with_fallback(
+                requests.get,
+                f"job/{quote(job_id, safe='')}",
+                timeout=self.timeout,
+                allow_redirects=False
             )
-            
-            if response.status_code != 200:
-                return {
-                    "success": False,
-                    "error": f"Status code {response.status_code}: {response.text}"
-                }
-            
-            data = response.json()
+            if not parse_result.get("success"):
+                return parse_result
+
+            data = parse_result["data"]
             status = data.get("status", "unknown")
             
             return {
@@ -246,18 +376,16 @@ class ActiveSitesPredictor:
             Dictionary with job results
         """
         try:
-            response = requests.get(
-                f"{self.api_base}/results/{job_id}",
-                timeout=60
+            parse_result = self._request_json_with_fallback(
+                requests.get,
+                f"results/{quote(job_id, safe='')}",
+                timeout=60,
+                allow_redirects=False
             )
-            
-            if response.status_code != 200:
-                return {
-                    "success": False,
-                    "error": f"Status code {response.status_code}: {response.text}"
-                }
-            
-            return {"success": True, "data": response.json()}
+            if not parse_result.get("success"):
+                return parse_result
+
+            return {"success": True, "data": parse_result["data"]}
             
         except Exception as e:
             return {"success": False, "error": str(e)}

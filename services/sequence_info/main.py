@@ -7,7 +7,15 @@ Port: 18918
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
+import sys
+from pathlib import Path
 from models import SequenceInfoQuery, SequenceInfoResponse, ErrorResponse
+
+root = str(Path(__file__).resolve().parents[2])
+if root not in sys.path:
+    sys.path.insert(0, root)
+from shared.sequence_mass import sequence_mass
+from shared.uniprot import uniprot_json_client, UniProtDownloadError
 
 app = FastAPI(
     title="Sequence Info Service",
@@ -25,14 +33,13 @@ app.add_middleware(
 
 
 def fetch_uniprot_data(uniprot_id: str) -> dict:
-    """Fetch protein data from UniProt REST API"""
-    url = f"https://rest.uniprot.org/uniprotkb/{uniprot_id}.json"
-    with httpx.Client(timeout=30.0) as client:
-        response = client.get(url)
-        if response.status_code == 404:
+    """Preserve the existing lookup contract using the verified shared client."""
+    try:
+        return uniprot_json_client.fetch_json(uniprot_id, capability='sequence')
+    except UniProtDownloadError as exc:
+        if exc.code == 'uniprot_not_found':
             return None
-        response.raise_for_status()
-        return response.json()
+        raise
 
 
 @app.get("/health")
@@ -51,17 +58,27 @@ def query_sequence_info(request: SequenceInfoQuery):
         - molWeight: Molecular weight in Daltons
         - value: Amino acid sequence
     """
-    data = fetch_uniprot_data(request.uniprot_id)
+    try:
+        data = fetch_uniprot_data(request.uniprot_id)
+    except UniProtDownloadError as exc:
+        status = 422 if exc.code == 'uniprot_invalid_accession' else 502
+        raise HTTPException(status_code=status, detail=str(exc)) from None
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="UniProt sequence lookup timed out. Please retry.") from None
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="UniProt sequence data are temporarily unavailable.") from None
     
     if data is None:
         raise HTTPException(status_code=404, detail=f"UniProt ID {request.uniprot_id} not found")
     
     sequence = data.get("sequence", {})
     
+    mass, mass_source, note = sequence_mass(sequence)
     return SequenceInfoResponse(
         length=sequence.get("length"),
-        molWeight=sequence.get("molWeight"),
-        value=sequence.get("value")
+        molWeight=mass, molWeight_source=mass_source, molWeight_note=note,
+        value=sequence.get("value"),
+        source=data.get("enzymindSource")
     )
 
 

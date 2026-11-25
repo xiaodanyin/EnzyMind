@@ -1,4 +1,4 @@
-# Enzymind Shared Library
+# EnzyMind Shared Library
 """
 共享工具库，包含所有服务共用的工具函数、模型定义和配置。
 """

@@ -42,7 +42,7 @@ class TestUtilityFunctions:
         from main import is_uniprot_id
         assert is_uniprot_id("MKTAYIAKQRQ") is False
         assert is_uniprot_id("12345") is False
-        assert is_uniprot_id("p12345") is False  # 小写
+        assert is_uniprot_id("p12345") is True  # Normalized by shared resolver
     
     def test_is_fasta_content(self):
         """测试FASTA内容检测"""
@@ -159,13 +159,57 @@ class TestFastAPIEndpoints:
         """测试缺少查询参数"""
         response = client.post(
             "/api/predict/ec",
-            data={"input_type": "sequence"}
+            json={"input_type": "sequence"}
         )
-        assert response.status_code == 400
+        assert response.status_code == 422
 
 
 class TestECnumberPredictor:
     """测试EC号预测器模型"""
+
+    def test_write_max_sep_choices_returns_single_best_distance_match(self):
+        """测试无GMM时只返回距离最小的单个EC号"""
+        try:
+            import pandas as pd
+            from models.ecnumber_predictor import write_max_sep_choices
+
+            df = pd.DataFrame({
+                "query": {
+                    "1.1.1.1": 0.10,
+                    "2.2.2.2": 0.12,
+                    "3.3.3.3": 0.50,
+                }
+            })
+
+            result = write_max_sep_choices(df, "unused")
+
+            assert result == "EC:1.1.1.1."
+        except ImportError:
+            pytest.skip("Required packages not installed")
+
+    def test_write_max_sep_choices_returns_single_best_gmm_match(self):
+        """测试有GMM时只返回置信度最高的单个EC号"""
+        try:
+            import pandas as pd
+            from models import ecnumber_predictor
+
+            df = pd.DataFrame({
+                "query": {
+                    "1.1.1.1": 0.10,
+                    "2.2.2.2": 0.12,
+                    "3.3.3.3": 0.50,
+                }
+            })
+
+            with tempfile.NamedTemporaryFile() as gmm_file:
+                with patch.object(ecnumber_predictor, "maximum_separation", return_value=1), \
+                     patch.object(ecnumber_predictor.pickle, "load", return_value=[MagicMock()]), \
+                     patch.object(ecnumber_predictor, "infer_confidence_gmm", side_effect=[0.20, 0.95]):
+                    result = ecnumber_predictor.write_max_sep_choices(df, "unused", gmm=gmm_file.name)
+
+            assert result == "EC:2.2.2.2."
+        except ImportError:
+            pytest.skip("Required packages not installed")
     
     def test_layer_norm_net(self):
         """测试LayerNormNet"""

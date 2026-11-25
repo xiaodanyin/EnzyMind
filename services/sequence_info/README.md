@@ -1,6 +1,6 @@
 # Sequence Info Service
 
-Microservice for querying protein sequence information (sequence length, molecular weight, amino acid sequence).
+A microservice for protein sequence information: length, molecular weight and amino acid sequence.
 
 ## Port
 
@@ -8,18 +8,18 @@ Microservice for querying protein sequence information (sequence length, molecul
 
 ## Features
 
-Query protein sequence information from UniProt:
-- Sequence length (number of amino acids)
-- Molecular weight (Daltons)
+Retrieve protein sequence information from UniProt:
+- Sequence length (amino acid count)
+- Molecular weight (Da)
 - Amino acid sequence
 
-## API Endpoints
+## API endpoints
 
 | Method | Endpoint | Description |
 |------|------|------|
 | GET | `/health` | Health check |
 | POST | `/api/query/sequence-info` | Query sequence information |
-| POST | `/api/query/sequence-info/form` | Form-based query |
+| POST | `/api/query/sequence-info/form` | Query using form fields |
 
 ## Installation
 
@@ -37,24 +37,24 @@ source venv/bin/activate
 python main.py
 ```
 
-The service will start at http://localhost:18918
+The service runs at http://localhost:18918
 
-## Testing
+## Tests
 
 ```bash
 source venv/bin/activate
 pytest tests/ -v
 ```
 
-## API Documentation
+## API documentation
 
 After starting the service, visit:
 - Swagger UI: http://localhost:18918/docs
 - ReDoc: http://localhost:18918/redoc
 
-## curl Examples
+## curl examples
 
-### Health Check
+### Health check
 
 ```bash
 curl http://localhost:18918/health
@@ -68,7 +68,7 @@ Response:
 }
 ```
 
-### Query Sequence Information
+### Query sequence information
 
 ```bash
 curl -X POST http://localhost:18918/api/query/sequence-info \
@@ -85,20 +85,23 @@ Response:
 }
 ```
 
-### Form-based Query
+### Query using form fields
 
 ```bash
 curl -X POST "http://localhost:18918/api/query/sequence-info/form?uniprot_id=P12345"
 ```
 
-## Response Fields
+## Response fields
 
 | Field | Type | Description |
 |------|------|------|
-| length | int | Sequence length (number of amino acids) |
-| molWeight | int | Molecular weight (Daltons) |
-| value | string | Amino acid sequence |
+| length | int/null | Sequence length (amino acid count) |
+| molWeight | int/null | Reported mass, or calculated average mass of the returned unmodified sequence, in Da |
+| molWeight_source | string/null | Reported or calculated mass provenance |
+| molWeight_note | string/null | Explanation when a usable mass cannot be returned |
+| value | string/null | Amino acid sequence |
+| source | object/null | UniProt record provenance |
 
-## Data Source
+## Data sources
 
-- UniProt REST API: https://rest.uniprot.org/uniprotkb/{id}.json
+The [shared UniProt client](../../shared/README-uniprot.md) checks the configured local snapshot and exact-accession sequence index before the official API. Sequence Information and Enzyme Information use the same mass calculation helper: preserve reported mass when available, otherwise calculate it from a complete unambiguous sequence and label its source. An unavailable mass includes a reason in `molWeight_note`.

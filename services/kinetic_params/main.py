@@ -1,6 +1,7 @@
 """Kinetic Params Service - Port: 18917"""
 from fastapi import FastAPI, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 import uvicorn
@@ -15,6 +16,7 @@ class KineticRequest(BaseModel):
 
 class KineticResponse(BaseModel):
     success: bool
+    source: Optional[dict] = None
     uniprot_id: Optional[str] = None
     km: List[Dict[str, Any]] = Field(default_factory=list)
     vmax: List[Dict[str, Any]] = Field(default_factory=list)
@@ -35,14 +37,14 @@ async def health_check():
 async def query_kinetics(request: KineticRequest):
     if not request.query or not request.query.strip():
         raise HTTPException(status_code=400, detail="UniProt ID is required")
-    result = query.get_kinetics(request.query.strip())
+    result = await run_in_threadpool(query.get_kinetics, request.query.strip())
     return KineticResponse(**result)
 
 @app.post("/api/query/kinetics/form", response_model=KineticResponse)
 async def query_kinetics_form(query_id: str = Form(..., alias="query")):
     if not query_id or not query_id.strip():
         raise HTTPException(status_code=400, detail="UniProt ID is required")
-    result = query.get_kinetics(query_id.strip())
+    result = await run_in_threadpool(query.get_kinetics, query_id.strip())
     return KineticResponse(**result)
 
 @app.post("/query/kinetics", response_model=KineticResponse, tags=["Legacy"])

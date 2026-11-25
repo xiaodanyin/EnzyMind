@@ -1,450 +1,437 @@
-"""
-EnzyMind N8N Agent Client
-用于调用n8n webhook的Python客户端接口
+"""Notebook-compatible EnzyMind client for the persistent Agent workspace.
 
-Usage:
-    from agent_n8n.client import EnzyMindN8NClient
-    
-    client = EnzyMindN8NClient()  # 初始化时自动生成userID
-    client.chat("Tell me about P06865")  # 在Jupyter中自动渲染Markdown
-    
-    # 上传fasta文件
-    client.chat("帮我预测这个文件中的蛋白是否为酶", fasta_file="path/to/file.fasta")
-    
-    # 流式输出
-    client.chat("Tell me about P06865", stream=True)
+Existing ``EnzyMindN8NClient().chat(...)`` calls use the current public gateway.
+An explicit ``webhook_url`` or ``mode='legacy'`` retains the old n8n protocol.
 """
-
-import uuid
+import codecs
+import hashlib
 import json
-import requests
+import os
+import re
+import secrets
+import time
+import uuid
 from pathlib import Path
-from typing import Optional, Union, Iterator, Callable
+from urllib.parse import urlsplit
+
+import requests
+
+from agent_n8n.legacy_client import LegacyWebhookClient, _in_notebook
+from gateway.result_catalog import normalize_result_links, RESULT_UUID
 
 
-def _in_notebook() -> bool:
-    """检测是否在 Jupyter Notebook/Lab 环境中运行"""
+class EnzyMindAPIError(RuntimeError):
+    """An API failure, including daily_limit (402), with safe structured details."""
+    def __init__(self, message, status_code=None, code=None, quota=None):
+        super().__init__(message)
+        self.status_code, self.code, self.quota = status_code, code, quota
+
+
+def _uuid(value):
     try:
-        from IPython import get_ipython
-        shell = get_ipython().__class__.__name__
-        if shell == 'ZMQInteractiveShell':
-            return True  # Jupyter notebook or qtconsole
-        elif shell == 'TerminalInteractiveShell':
-            return False  # Terminal running IPython
-        else:
-            return False
-    except (NameError, AttributeError):
-        return False
+        return str(uuid.UUID(str(value)))
+    except (ValueError, TypeError, AttributeError):
+        raise ValueError('Expected a valid session, turn, result or request UUID.') from None
 
 
-def _display_markdown(text: str) -> None:
-    """在 Jupyter 中以 Markdown 格式显示文本"""
-    from IPython.display import display, Markdown
-    # 预处理：格式化 [Used tools: ...] 块
-    processed_text = _format_tool_usage_blocks(text)
-    display(Markdown(processed_text))
+def _read_state(path):
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text(encoding='utf-8'))
+    if not isinstance(data, dict):
+        raise ValueError('The workspace access file must contain a JSON object.')
+    return data
 
 
-def _format_tool_usage_blocks(text: str) -> str:
-    """格式化 [Used tools: Tool: xxx, Input: {}, Result: [...]] 块"""
-    import re
-    
-    if not text:
-        return text
-    
-    # 匹配 [Used tools: ...] 模式
-    pattern = r'\[Used tools:\s*Tool:\s*([^,]+),\s*Input:\s*(\{[^}]*\}),\s*Result:\s*(\[[\s\S]*?\])\]'
-    
-    def format_match(match):
-        tool_name = match.group(1).strip()
-        result_str = match.group(3)
-        
-        try:
-            results = json.loads(result_str)
-            formatted = f"\n\n---\n**⚙️ Tool: {tool_name}**\n\n"
-            
-            if results and len(results) > 0:
-                result = results[0]
-                if 'result' in result:
-                    formatted += result['result'] + "\n"
-                elif 'error' in result:
-                    formatted += f"❌ **Error:** {result['error']}\n"
-                else:
-                    formatted += f"```json\n{json.dumps(result, indent=2, ensure_ascii=False)}\n```\n"
-            
-            formatted += "---\n\n"
-            return formatted
-        except (json.JSONDecodeError, KeyError, IndexError):
-            return f"\n\n> **⚙️ Tool Used:** {tool_name}\n\n"
-    
-    return re.sub(pattern, format_match, text)
+def _write_private(path, data, exclusive=False):
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    flags = os.O_WRONLY | os.O_CREAT | (os.O_EXCL if exclusive else os.O_TRUNC)
+    flags |= getattr(os, 'O_NOFOLLOW', 0)
+    fd = os.open(path, flags, 0o600)
+    with os.fdopen(fd, 'w', encoding='utf-8') as output:
+        os.fchmod(output.fileno(), 0o600)
+        json.dump(data, output, ensure_ascii=False, indent=2)
+        output.write('\n')
 
 
-def _parse_ndjson_line(line: str) -> Optional[dict]:
-    """解析 NDJSON 行，返回解析结果或 None"""
-    line = line.strip()
-    if not line:
-        return None
-    try:
-        return json.loads(line)
-    except json.JSONDecodeError:
-        return None
-
-
-def _extract_content_from_stream(response_text: str) -> str:
-    """从流式响应文本中提取所有内容"""
-    content_parts = []
-    for line in response_text.split('\n'):
-        parsed = _parse_ndjson_line(line)
-        if parsed and parsed.get('type') == 'item' and 'content' in parsed:
-            content_parts.append(parsed['content'])
-    return ''.join(content_parts)
-
-
-class EnzyMindN8NClient:
-    """
-    EnzyMind N8N Agent 客户端
-    
-    每次实例化时会生成一个唯一的 userID，用于维护对话上下文。
-    同一个实例的多次 chat 调用会共享同一个对话历史。
-    
-    在 Jupyter Notebook 中会自动将响应渲染为 Markdown 格式。
-    """
-    
-    # N8N Webhook Production URL
-    # 格式: https://<domain>/webhook/<path>
-    DEFAULT_BASE_URL = "http://localhost:5678"
-    WEBHOOK_PATH = "8e6add2a-15cd-4a13-be8f-937593f5680a"
-    
-    def __init__(
-        self, 
-        base_url: Optional[str] = None,
-        user_id: Optional[str] = None,
-        timeout: int = 300,
-        auto_display: bool = True,
-        webhook_url: Optional[str] = None
-    ):
-        """
-        初始化客户端
-        
-        Args:
-            base_url: N8N服务的基础URL，默认使用 DEFAULT_BASE_URL
-            user_id: 自定义userID，如果不提供则自动生成UUID
-            timeout: 请求超时时间（秒），默认300秒（5分钟），因为AI推理可能需要较长时间
-            auto_display: 是否在Jupyter环境中自动渲染Markdown，默认True
-        """
-        self.base_url = (base_url or self.DEFAULT_BASE_URL).rstrip('/')
-        self.user_id = user_id or str(uuid.uuid4())
-        self.timeout = timeout
-        self.webhook_url = f"{self.base_url}/webhook/{self.WEBHOOK_PATH}" if webhook_url is None else webhook_url
-        self.auto_display = auto_display
-        self._in_notebook = _in_notebook()
-        
-        # 打印初始化信息
-        print(f"🤖 EnzyMind Agent initialized")
-        print(f"   Session ID: {self.user_id}")
-        
-    def chat(
-        self, 
-        message: str, 
-        fasta_file: Optional[Union[str, Path]] = None,
-        display: bool = True,
-        stream: Optional[bool] = None,
-        on_tool_start: Optional[Callable[[int], None]] = None,
-        on_tool_end: Optional[Callable[[int], None]] = None
-    ) -> str:
-        """
-        发送消息并获取AI响应
-        
-        Args:
-            message: 用户输入的消息
-            fasta_file: 可选的FASTA文件路径，用于上传蛋白序列文件
-            display: 是否显示响应（在Jupyter中渲染Markdown），默认True
-            stream: 是否流式输出（实时打印响应），默认None（在Jupyter中自动启用）
-            on_tool_start: 工具开始调用时的回调函数，参数为工具编号
-            on_tool_end: 工具调用完成时的回调函数，参数为工具编号
-            
-        Returns:
-            AI Agent的响应文本
-            
-        Raises:
-            requests.RequestException: 请求失败时抛出
-            FileNotFoundError: FASTA文件不存在时抛出
-            ValueError: 响应格式错误时抛出
-        """
-        # 在 Jupyter 中默认启用流式输出
-        if stream is None:
-            stream = self._in_notebook
-        
-        try:
-            if stream:
-                result = self._chat_stream(message, fasta_file, on_tool_start, on_tool_end)
-            elif fasta_file is not None:
-                # 使用 multipart/form-data 上传文件
-                result = self._chat_with_file(message, fasta_file)
-            else:
-                # 使用 JSON 格式发送纯文本消息
-                result = self._chat_json(message)
-            
-            # 在 Jupyter 中自动渲染 Markdown（非流式模式）
-            if display and self.auto_display and self._in_notebook and not stream:
-                _display_markdown(result)
-            
-            return result
-            
-        except requests.Timeout:
-            raise TimeoutError(
-                f"请求超时（{self.timeout}秒）。AI推理可能需要更长时间，"
-                "请尝试增加 timeout 参数。"
-            )
-        except requests.RequestException as e:
-            raise RuntimeError(f"请求失败: {e}")
-    
-    def _chat_json(self, message: str) -> str:
-        """使用 JSON 格式发送消息（无文件）"""
-        payload = {
-            "userID": self.user_id,
-            "message": message
-        }
-        
-        response = requests.post(
-            self.webhook_url,
-            json=payload,
-            timeout=self.timeout,
-            headers={
-                "Content-Type": "application/json",
-                "Accept-Encoding": "identity"  # 禁用压缩
-            }
-        )
-        response.raise_for_status()
-        # 解析 NDJSON 流式响应
-        return _extract_content_from_stream(response.text)
-    
-    def _chat_with_file(self, message: str, fasta_file: Union[str, Path]) -> str:
-        """使用 multipart/form-data 格式发送消息和文件"""
-        fasta_path = Path(fasta_file)
-        
-        if not fasta_path.exists():
-            raise FileNotFoundError(f"FASTA文件不存在: {fasta_path}")
-        
-        if not fasta_path.is_file():
-            raise ValueError(f"路径不是文件: {fasta_path}")
-        
-        # 准备 multipart/form-data 数据
-        data = {
-            "userID": self.user_id,
-            "message": message
-        }
-        
-        with open(fasta_path, 'rb') as f:
-            files = {
-                "data": (fasta_path.name, f, "text/plain")
-            }
-            
-            response = requests.post(
-                self.webhook_url,
-                data=data,
-                files=files,
-                timeout=self.timeout,
-                headers={
-                    "Accept-Encoding": "identity"  # 禁用压缩
-                }
-            )
-        
-        response.raise_for_status()
-        # 解析 NDJSON 流式响应
-        return _extract_content_from_stream(response.text)
-    
-    def _chat_stream(
-        self, 
-        message: str, 
-        fasta_file: Optional[Union[str, Path]] = None,
-        on_tool_start: Optional[Callable[[int], None]] = None,
-        on_tool_end: Optional[Callable[[int], None]] = None
-    ) -> str:
-        """流式发送消息并实时输出响应"""
-        
-        # 准备请求
-        if fasta_file is not None:
-            fasta_path = Path(fasta_file)
-            if not fasta_path.exists():
-                raise FileNotFoundError(f"FASTA文件不存在: {fasta_path}")
-            if not fasta_path.is_file():
-                raise ValueError(f"路径不是文件: {fasta_path}")
-            
-            data = {"userID": self.user_id, "message": message}
-            with open(fasta_path, 'rb') as f:
-                files = {"data": (fasta_path.name, f, "text/plain")}
-                response = requests.post(
-                    self.webhook_url,
-                    data=data,
-                    files=files,
-                    timeout=self.timeout,
-                    headers={"Accept-Encoding": "identity"},
-                    stream=True
-                )
-        else:
-            payload = {"userID": self.user_id, "message": message}
-            response = requests.post(
-                self.webhook_url,
-                json=payload,
-                timeout=self.timeout,
-                headers={
-                    "Content-Type": "application/json",
-                    "Accept-Encoding": "identity"
-                },
-                stream=True
-            )
-        
-        response.raise_for_status()
-        
-        # 判断是否在 Jupyter 环境
-        use_jupyter_display = self._in_notebook
-        display_handle = None
-        
-        if use_jupyter_display:
-            from IPython.display import display, Markdown
-            display_handle = display(Markdown("*🤔 正在思考...*"), display_id=True)
-        
-        # 流式解析和输出
-        content_parts = []
-        tool_count = 0
-        last_was_end = False
-        is_first_begin = True
-        tool_indicator = ""
-        
-        def update_display():
-            """更新 Jupyter 显示"""
-            if use_jupyter_display and display_handle:
-                full_content = ''.join(content_parts)
-                display_text = tool_indicator + full_content if tool_indicator else full_content
-                if not display_text.strip():
-                    display_text = "*🤔 正在思考...*"
-                display_handle.update(Markdown(display_text))
-        
-        # 逐块读取并处理
-        buffer = ""
+def _sse(response):
+    """Handle UTF-8 and CRLF boundaries without splitting SSE events early."""
+    def lines():
+        decoder = codecs.getincrementaldecoder('utf-8')()
+        pending = ''
         for chunk in response.iter_content(chunk_size=1024):
-            if not chunk:
+            pending += decoder.decode(chunk)
+            while '\n' in pending:
+                line, pending = pending.split('\n', 1)
+                yield line.removesuffix('\r')
+            if len(pending) > 2_000_000:
+                raise EnzyMindAPIError('The Agent stream exceeded its line size limit.')
+        pending += decoder.decode(b'', final=True)
+        if pending:
+            yield pending.removesuffix('\r')
+    event, data, size = 'message', [], 0
+    for line in lines():
+        if line == '':
+            if data:
+                yield event, json.loads('\n'.join(data))
+            event, data, size = 'message', [], 0
+        elif line.startswith('event:'):
+            event = line[6:].strip()
+        elif line.startswith('data:'):
+            data.append(line[5:].lstrip(' '))
+            size += len(data[-1])
+            if size > 2_000_000:
+                raise EnzyMindAPIError('The Agent stream exceeded its frame size limit.')
+    if data:
+        yield event, json.loads('\n'.join(data))
+
+
+class EnzyMindN8NClient(LegacyWebhookClient):
+    DEFAULT_BASE_URL = 'https://cadd.zju.edu.cn/enzymind/api'
+    BACKUP_BASE_URL = None
+
+    def __init__(self, base_url=None, user_id=None, timeout=300, auto_display=True,
+                 webhook_url=None, *, mode='auto', workspace_key=None,
+                 workspace_file=None, session_id=None, deepseek_api_key=None,
+                 backup_base_url=None, poll_interval=1):
+        if mode not in ('auto', 'workspace', 'legacy'):
+            raise ValueError("mode must be 'auto', 'workspace' or 'legacy'.")
+        inferred_legacy = webhook_url is not None or (base_url and urlsplit(base_url).port == 5678)
+        self.mode = 'legacy' if mode == 'legacy' or (mode == 'auto' and inferred_legacy) else 'workspace'
+        if self.mode == 'legacy':
+            if workspace_key or deepseek_api_key or session_id:
+                raise ValueError('Workspace access, sessions and BYOK require mode="workspace".')
+            super().__init__(base_url or 'http://localhost:5678', user_id, timeout, auto_display, webhook_url)
+            return
+        if webhook_url is not None:
+            raise ValueError('webhook_url is only supported in legacy mode.')
+        if timeout <= 0 or poll_interval <= 0:
+            raise ValueError('timeout and poll_interval must be positive.')
+        self.base_url = self._base(base_url or os.getenv('ENZYMIND_BASE_URL') or self.DEFAULT_BASE_URL)
+        if backup_base_url is None and self.base_url == self.DEFAULT_BASE_URL:
+            backup_base_url = self.BACKUP_BASE_URL
+        self.backup_base_url = self._base(backup_base_url) if backup_base_url else None
+        self._active_base = self.base_url
+        self.timeout, self.poll_interval, self.auto_display = timeout, poll_interval, auto_display
+        self._in_notebook = _in_notebook()
+        self._http = requests.Session()
+        self.webhook_url = None
+        self.workspace_file = Path(workspace_file or os.getenv('ENZYMIND_WORKSPACE_FILE') or
+                                   Path.home() / '.local/share/enzymind/notebook-workspace.json').expanduser()
+        state = _read_state(self.workspace_file)
+        provided = workspace_key or os.getenv('ENZYMIND_WORKSPACE_KEY')
+        if provided:
+            self._workspace_key = provided
+        else:
+            if not state.get('access_key'):
+                state.update(application='EnzyMind workspace', access_key=secrets.token_hex(32))
+                try:
+                    _write_private(self.workspace_file, state, exclusive=not self.workspace_file.exists())
+                except FileExistsError:
+                    state = _read_state(self.workspace_file)
+            self._workspace_key = state['access_key']
+        if not re.fullmatch(r'[A-Za-z0-9_-]{32,128}', self._workspace_key):
+            raise ValueError('Invalid workspace access key; import an EnzyMind workspace access file.')
+        self.user_id = user_id or session_id or str(uuid.uuid4())
+        self.session_id = _uuid(session_id) if session_id else state.get('conversations', {}).get(self._alias())
+        if self.session_id:
+            self.session_id = _uuid(self.session_id)
+        self._deepseek_key = None
+        self.set_deepseek_key(deepseek_api_key)
+        self.last_turn = None
+        self.last_turn_id = None
+        self.last_request_id = None
+        self.partial_output = ''
+        self.stream_updates = 0
+        self._pending = None
+
+    @staticmethod
+    def _base(value):
+        parsed = urlsplit(value.rstrip('/'))
+        if parsed.scheme not in ('http', 'https') or not parsed.netloc or parsed.username or parsed.password or parsed.query or parsed.fragment:
+            raise ValueError('Use an HTTP(S) API base URL without credentials, query or fragment.')
+        return value.rstrip('/')
+
+    def _alias(self):
+        canonical = self.DEFAULT_BASE_URL if self.base_url in (self.DEFAULT_BASE_URL, self.BACKUP_BASE_URL) else self.base_url
+        return hashlib.sha256(json.dumps([canonical, self._workspace_key, self.user_id]).encode()).hexdigest()
+
+    def _remember_session(self):
+        state = _read_state(self.workspace_file)
+        state.setdefault('conversations', {})[self._alias()] = self.session_id
+        # An explicit/environment key stays in memory; never copy it into state.
+        temporary = self.workspace_file.with_name(self.workspace_file.name + '.' + uuid.uuid4().hex + '.tmp')
+        try:
+            _write_private(temporary, state, exclusive=True)
+            temporary.replace(self.workspace_file)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def set_deepseek_key(self, token):
+        """Keep a personal DeepSeek key only in memory; None forgets it."""
+        if self.mode == 'legacy':
+            raise ValueError('BYOK requires workspace mode.')
+        if token is not None and (not isinstance(token, str) or not 8 <= len(token) <= 512 or any(c.isspace() for c in token)):
+            raise ValueError('Enter a valid DeepSeek API token.')
+        if token and any(urlsplit(base).scheme != 'https' and urlsplit(base).hostname not in ('localhost', '127.0.0.1', '::1') for base in (self.base_url, self.backup_base_url) if base):
+            raise ValueError('Use HTTPS for a personal API token outside localhost.')
+        self._deepseek_key = token
+
+    def _request(self, method, path, *, body=None, streaming=False, idempotent=False, model_key=False):
+        headers = {'X-Enzymind-Client': self._workspace_key, 'Accept-Encoding': 'identity'}
+        if streaming:
+            headers['Accept'] = 'text/event-stream'
+        if model_key and self._deepseek_key:
+            headers['X-DeepSeek-API-Key'] = self._deepseek_key
+        bases = [self._active_base]
+        if method == 'GET' or idempotent:
+            bases += [b for b in (self.base_url, self.backup_base_url) if b and b not in bases]
+        for index, base in enumerate(bases):
+            try:
+                response = self._http.request(method, base + '/workspace' + path, json=body,
+                    headers=headers, timeout=(min(15, self.timeout), min(30, self.timeout)),
+                    stream=streaming, allow_redirects=False)
+            except requests.RequestException:
+                if index + 1 < len(bases):
+                    continue
+                raise EnzyMindAPIError('Cannot reach EnzyMind. A submitted turn may still be running; use resume_turn() or retry the same message/request_id, not a new calculation.') from None
+            if response.status_code >= 500 and index + 1 < len(bases):
+                response.close()
                 continue
-            
-            # 解码
-            if isinstance(chunk, bytes):
-                chunk = chunk.decode('utf-8', errors='ignore')
-            
-            buffer += chunk
-            
-            # 按行分割处理
-            while '\n' in buffer:
-                line, buffer = buffer.split('\n', 1)
-                line = line.strip()
-                if not line:
+            if not 200 <= response.status_code < 300:
+                try:
+                    detail = response.json().get('detail', {})
+                except (ValueError, AttributeError):
+                    detail = {}
+                response.close()
+                message = detail.get('message') if isinstance(detail, dict) else detail if isinstance(detail, str) else None
+                # Never include raw request headers or provider error bodies.
+                message = message or f'EnzyMind returned HTTP {response.status_code}.'
+                for secret in (self._workspace_key, self._deepseek_key):
+                    if secret:
+                        message = message.replace(secret, '[redacted]')
+                raise EnzyMindAPIError(message, response.status_code,
+                    detail.get('code') if isinstance(detail, dict) else None,
+                    detail.get('quota') if isinstance(detail, dict) else None)
+            self._active_base = base
+            return response
+
+    def _json(self, method, path, **kwargs):
+        with self._request(method, path, **kwargs) as response:
+            return response.json()
+
+    def usage(self):
+        return self._json('GET', '/usage')
+
+    def get_session(self):
+        if not self.session_id:
+            raise ValueError('No conversation yet; call chat() first or supply session_id.')
+        return self._json('GET', '/sessions/' + _uuid(self.session_id))
+
+    def get_turn(self, turn_id=None):
+        return self._json('GET', '/turns/' + _uuid(turn_id or self.last_turn_id))
+
+    def cancel_turn(self, turn_id=None):
+        """Explicitly stop a turn; already submitted scientific jobs may finish."""
+        turn = self._json('POST', '/turns/' + _uuid(turn_id or self.last_turn_id) + '/cancel',
+                          body={}, idempotent=True)
+        if turn.get('id') == self.last_turn_id:
+            self.last_turn, self._pending = turn, None
+        return turn
+
+    def get_result(self, result_id):
+        return self._json('GET', '/results/' + _uuid(result_id))
+
+    def list_results(self):
+        return self._json('GET', '/results')['results']
+
+    def export_result(self, result_id, path):
+        """Download a full result now; server results expire after 90 days."""
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(self.get_result(result_id), ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+        return target
+
+    def export_access(self, path):
+        """Explicit private export for the website's Workspace access → Import."""
+        target = Path(path)
+        _write_private(target, {'application': 'EnzyMind workspace', 'access_key': self._workspace_key}, exclusive=True)
+        return target
+
+    def _markdown(self, text):
+        # Never invent an ID to repair an unresolvable placeholder.
+        text = normalize_result_links(text, {})
+        origin = urlsplit(self.base_url)
+        return re.sub(r'(?<![\w:/])(/enzymind/results/' + RESULT_UUID + r')',
+                      lambda m: f'{origin.scheme}://{origin.netloc}' + m.group(1), text, flags=re.I)
+
+    def chat(self, message, fasta_file=None, display=True, stream=None,
+             on_tool_start=None, on_tool_end=None, *, references=None,
+             request_id=None, on_update=None):
+        if self.mode == 'legacy':
+            if references or request_id or on_update:
+                raise ValueError('Saved result references/request IDs require workspace mode.')
+            return super().chat(message, fasta_file, display, stream, on_tool_start, on_tool_end)
+        if not isinstance(message, str) or not message.strip():
+            raise ValueError('Enter a non-empty message.')
+        if fasta_file is not None:
+            path = Path(fasta_file)
+            if path.stat().st_size > 96_000:
+                raise ValueError('FASTA file is too large for an Agent question; use fewer records.')
+            content = path.read_text(encoding='utf-8-sig')
+            if not content.lstrip().startswith('>'):
+                raise ValueError('The attachment must be a FASTA file with named records.')
+            message += f'\n\nAttached FASTA file: {path.name}\n\n{content}'
+        message = message.strip()
+        if len(message) > 24000:
+            raise ValueError('Message and FASTA must fit within 24,000 characters. Records are never concatenated or silently truncated.')
+        refs = list(dict.fromkeys(_uuid(r) for r in (references or [])))
+        if len(refs) > 4:
+            raise ValueError('Attach up to four saved results.')
+        if not self.session_id:
+            self.usage()  # Select a reachable gateway before a non-idempotent session POST.
+            self.session_id = _uuid(self._json('POST', '/sessions', body={})['id'])
+            self._remember_session()
+        fingerprint = json.dumps([self.session_id, message, refs], ensure_ascii=False)
+        if self._pending and self._pending[0] != fingerprint:
+            raise EnzyMindAPIError('The previous turn is unresolved. Use resume_turn() before submitting a different question.')
+        rid = _uuid(request_id) if request_id else self._pending[1] if self._pending else str(uuid.uuid4())
+        if self._pending and rid != self._pending[1]:
+            raise EnzyMindAPIError('The previous request is unresolved. Resume it before changing request_id.')
+        self._pending = (fingerprint, rid)
+        self.last_request_id = rid
+        try:
+            turn = self._json('POST', f'/sessions/{self.session_id}/turns',
+                body={'message': message, 'references': refs, 'request_id': rid}, idempotent=True, model_key=True)
+        except EnzyMindAPIError as exc:
+            if exc.status_code and exc.status_code < 500:
+                self._pending = None  # Validation/quota rejection did not accept this request.
+            raise
+        self.last_turn_id = turn['id']
+        return self._wait(turn, display, self._in_notebook if stream is None else stream, on_tool_start, on_tool_end, on_update)
+
+    def resume_turn(self, turn_id=None, *, display=True, stream=True,
+                    on_tool_start=None, on_tool_end=None, on_update=None):
+        """Resume an existing turn by GET only; never submit a duplicate calculation."""
+        if not turn_id and not self.last_turn_id and self._pending:
+            match = next((t for t in self.get_session()['turns'] if t['request_id'] == self._pending[1]), None)
+            if not match:
+                raise EnzyMindAPIError('No saved turn matches the pending request. Retry the same message/request_id.')
+            turn_id = match['id']
+        turn = self.get_turn(turn_id)
+        self.session_id, self.last_turn_id = turn['session_id'], turn['id']
+        self.last_request_id = turn.get('request_id', self.last_request_id)
+        return self._wait(turn, display, stream, on_tool_start, on_tool_end, on_update)
+
+    def _wait(self, turn, display, stream, on_start, on_end, on_update):
+        deadline = time.monotonic() + self.timeout
+        self.last_turn = turn
+        self.partial_output, self.stream_updates = '', 0
+        handle = None
+        if display and self.auto_display and self._in_notebook:
+            from IPython.display import display as ipy_display, Markdown
+            handle = ipy_display(Markdown('*Waiting for EnzyMind…*'), display_id=True)
+        seen, counts, previous = set(), {'tool_start': 0, 'tool_end': 0}, ''
+
+        def update(current):
+            nonlocal previous
+            self.last_turn = current
+            for event in current.get('events', []):
+                identity = event.get('seq', json.dumps(event, sort_keys=True))
+                if identity in seen:
                     continue
-                
-                parsed = _parse_ndjson_line(line)
-                if not parsed:
-                    continue
-                
-                if parsed.get('type') == 'begin':
-                    if is_first_begin:
-                        is_first_begin = False
-                    elif last_was_end:
-                        # 工具调用完成
-                        if on_tool_end:
-                            on_tool_end(tool_count)
-                        tool_indicator = f"*⚙️ Used {tool_count} tool(s)*\n\n"
-                        update_display()
-                    last_was_end = False
-                    
-                elif parsed.get('type') == 'end':
-                    # 开始工具调用
-                    tool_count += 1
-                    if on_tool_start:
-                        on_tool_start(tool_count)
-                    tool_indicator = f"*⚙️ Calling tool #{tool_count}...*\n\n"
-                    update_display()
-                    last_was_end = True
-                    
-                elif parsed.get('type') == 'item' and 'content' in parsed:
-                    content = parsed['content']
-                    content_parts.append(content)
-                    tool_indicator = ""  # 收到内容后清除工具指示
-                    update_display()
-                    last_was_end = False
-        
-        # 处理剩余 buffer
-        if buffer.strip():
-            parsed = _parse_ndjson_line(buffer.strip())
-            if parsed and parsed.get('type') == 'item' and 'content' in parsed:
-                content_parts.append(parsed['content'])
-                update_display()
-        
-        # 确保最后的工具调用也标记完成
-        if last_was_end:
-            if on_tool_end:
-                on_tool_end(tool_count)
-            tool_indicator = f"*⚙️ Used {tool_count} tool(s)*\n\n"
-            update_display()
-        
-        # 最终显示（格式化 [Used tools: ...] 块）
-        final_content = ''.join(content_parts)
-        formatted_content = _format_tool_usage_blocks(final_content)
-        if use_jupyter_display and display_handle:
-            display_handle.update(Markdown(formatted_content if formatted_content else "*无响应内容*"))
-        
-        return final_content
-    
-    def new_conversation(self) -> str:
-        """
-        开始新的对话（生成新的userID）
-        
-        Returns:
-            新的userID
-        """
-        self.user_id = str(uuid.uuid4())
+                seen.add(identity)
+                kind = event.get('kind')
+                if kind in counts:
+                    counts[kind] += 1
+                    callback = on_start if kind == 'tool_start' else on_end
+                    if callback:
+                        callback(counts[kind])
+            text = current.get('output', '') if current['status'] == 'completed' else current.get('partial_output', '')
+            self.partial_output = text
+            if text == previous:
+                return
+            previous = text
+            if current['status'] in ('running', 'queued') and text:
+                self.stream_updates += 1
+            rendered = self._markdown(text)
+            if handle:
+                handle.update(Markdown(rendered))
+            elif display and self.auto_display and not self._in_notebook and current['status'] == 'completed':
+                print(rendered)
+            if on_update:
+                on_update(rendered)
+
+        update(turn)
+        try:
+            if stream and turn['status'] in ('running', 'queued'):
+                try:
+                    with self._request('GET', f'/turns/{turn["id"]}/stream', streaming=True) as response:
+                        if 'text/event-stream' not in response.headers.get('Content-Type', ''):
+                            raise ValueError('Not an SSE response')
+                        for event, data in _sse(response):
+                            if time.monotonic() >= deadline:
+                                raise TimeoutError('Agent wait timed out; call resume_turn() to read the existing task.')
+                            if event in ('snapshot', 'done'):
+                                turn = data['turn']
+                            elif event == 'delta':
+                                turn = {**turn, 'partial_output': turn.get('partial_output', '') + data['text']}
+                            elif event == 'progress':
+                                latest = {**turn, **data}
+                                # Terminal progress announces completion but does
+                                # not contain the final output/memory transaction.
+                                # Read the saved turn before accepting it as final.
+                                if latest['status'] not in ('running', 'queued'):
+                                    latest = self.get_turn(turn['id'])
+                                turn = latest
+                            else:
+                                continue
+                            update(turn)
+                            if turn['status'] not in ('running', 'queued'):
+                                break
+                except (requests.RequestException, EnzyMindAPIError, ValueError):
+                    pass  # Reconcile via GET; never replay the POST after a stream interruption.
+            while turn['status'] in ('running', 'queued'):
+                if time.monotonic() >= deadline:
+                    raise TimeoutError('Agent wait timed out; call resume_turn() to read the existing task.')
+                turn = self.get_turn(turn['id'])
+                update(turn)
+                if turn['status'] in ('running', 'queued'):
+                    time.sleep(min(self.poll_interval, max(0, deadline - time.monotonic())))
+        except (Exception, KeyboardInterrupt):
+            if handle:
+                handle.update(Markdown(self._markdown(self.partial_output) + '\n\n*Waiting interrupted. This is partial text; use `resume_turn()` to retrieve the saved task.*'))
+            raise
+        self._pending = None
+        if turn['status'] != 'completed':
+            if handle:
+                handle.update(Markdown(self._markdown(self.partial_output) + '\n\n*Incomplete answer; not committed to conversation memory.*'))
+            raise EnzyMindAPIError(turn.get('error') or f'Agent turn {turn["status"]}. Saved tool results remain available.')
+        if not isinstance(turn.get('output'), str) or not turn['output'].strip():
+            raise EnzyMindAPIError('The server returned an empty completion. Inspect the saved turn before submitting another task.')
+        return self._markdown(turn['output'])
+
+    def new_conversation(self):
+        if self.mode == 'legacy':
+            return super().new_conversation()
+        if self._pending:
+            raise EnzyMindAPIError('Resolve the current turn before starting another conversation.')
+        self.user_id, self.session_id = str(uuid.uuid4()), None
+        self.last_turn = self.last_turn_id = self.last_request_id = None
         return self.user_id
-    
-    def __repr__(self) -> str:
-        return f"EnzyMindN8NClient(user_id='{self.user_id}', webhook_url='{self.webhook_url}')"
+
+    def close(self):
+        if self.mode == 'workspace':
+            self._deepseek_key = None
+            self._http.close()
+
+    def __repr__(self):
+        return f'EnzyMindN8NClient(mode={self.mode!r}, user_id={self.user_id!r})'
 
 
-# 便捷函数，用于快速单次调用
-def quick_chat(message: str, base_url: Optional[str] = None) -> str:
-    """
-    快速单次对话（每次调用都是新的对话）
-    
-    Args:
-        message: 用户消息
-        base_url: 可选的N8N服务URL
-        
-    Returns:
-        AI响应
-    """
-    client = EnzyMindN8NClient(base_url=base_url)
-    return client.chat(message)
-
-
-if __name__ == "__main__":
-    # 示例用法
-    print("=== EnzyMind N8N Agent Client Demo ===\n")
-    
-    # 创建客户端实例
-    client = EnzyMindN8NClient()
-    print(f"客户端初始化成功: {client}")
-    print(f"User ID: {client.user_id}")
-    print(f"Webhook URL: {client.webhook_url}\n")
-    
-    # 示例对话
+def quick_chat(message, base_url=None, **kwargs):
+    client = EnzyMindN8NClient(base_url=base_url, **kwargs)
     try:
-        print("发送消息: 'P06865是什么蛋白？'")
-        response = client.chat("P06865是什么蛋白？")
-        print(f"响应:\n{response}\n")
-        
-        # 继续对话（共享上下文）
-        print("发送消息: '它的活性位点有哪些？'")
-        response = client.chat("它的活性位点有哪些？")
-        print(f"响应:\n{response}\n")
-        
-    except Exception as e:
-        print(f"调用失败: {e}")
-        print("请确保N8N服务正在运行且webhook已激活。")
+        return client.chat(message)
+    finally:
+        client.close()

@@ -226,3 +226,40 @@ class TestDocumentation:
     def test_openapi_json(self, client):
         response = client.get("/openapi.json")
         assert response.status_code == 200
+
+
+def test_ncbi_submission_is_not_repeated_while_queued():
+    from models.blast_searcher import BlastSearcher
+    searcher = BlastSearcher()
+    with patch.object(searcher, "_ncbi_request", side_effect=[
+        "RID = TEST123\nRTOE = 60\n", "Status=WAITING\n", "<?xml version='1.0'?><test/>"
+    ]) as request, patch("models.blast_searcher.time.sleep") as sleep:
+        xml, rid = searcher._query_ncbi("MAAAA", 1, 0.01)
+    assert rid == "TEST123"
+    assert xml.startswith("<?xml")
+    assert [call.args[1]["CMD"] for call in request.call_args_list] == ["Put", "Get", "Get"]
+    assert all(call.args == (60,) for call in sleep.call_args_list)
+
+
+def test_ncbi_queue_deadline_keeps_request_id():
+    from models.blast_searcher import BlastSearcher
+    searcher = BlastSearcher()
+    searcher.MAX_WAIT = 121
+    with patch.object(searcher, "_ncbi_request", side_effect=["RID = TEST123\n", "Status=WAITING\n"]), \
+         patch("models.blast_searcher.time.sleep"), \
+         patch("models.blast_searcher.time.monotonic", side_effect=[0, 0, 122]):
+        with pytest.raises(TimeoutError, match="TEST123"):
+            searcher._query_ncbi("MAAAA", 1, 0.01)
+
+
+def test_retrieval_retries_keep_the_same_ncbi_job():
+    import requests
+    from models.blast_searcher import BlastSearcher
+    searcher = BlastSearcher()
+    with patch.object(searcher, "_ncbi_request", side_effect=[
+        "RID = TEST123\n", requests.ConnectionError("proxy interrupted"), "<?xml version='1.0'?><test/>"
+    ]) as request, patch("models.blast_searcher.time.sleep"):
+        _, rid = searcher._query_ncbi("MAAAA", 1, 0.01)
+    assert rid == "TEST123"
+    assert [call.args[1]["CMD"] for call in request.call_args_list] == ["Put", "Get", "Get"]
+    assert request.call_args_list[1].args[1]["RID"] == request.call_args_list[2].args[1]["RID"]

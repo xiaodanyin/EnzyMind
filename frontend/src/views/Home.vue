@@ -12,32 +12,32 @@
         <div class="particle" v-for="i in 20" :key="i" :style="getParticleStyle(i)"></div>
       </div>
       <div class="hero-gradient"></div>
-      <div class="hero-content">
+      <div class="hero-content container">
         <div class="hero-badge">
           <span class="badge-icon">🧬</span>
-          <span class="badge-text">AI-Powered Enzyme Informatics</span>
+          <span class="badge-text">LLM-Orchestrated Enzyme Intelligence</span>
         </div>
         <h1 class="hero-title">
           Welcome to <span class="highlight">EnzyMind</span>
         </h1>
         <p class="hero-slogan">
-          Empowering enzyme research with intelligent agents: analyze, predict, and optimize with EnzyMind.
+          From protein sequence to catalytic insight. Connect enzyme annotation, molecular recognition and structural evidence in one research workspace.
         </p>
         <div class="hero-buttons">
-          <router-link to="/predict/enzyme" class="cta-button primary">
-            <span>Get Started</span>
+          <router-link to="/agent" class="cta-button primary">
+            <span>Open Research Workspace</span>
             <svg viewBox="0 0 24 24" width="20" height="20">
               <path fill="currentColor" d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/>
             </svg>
           </router-link>
-          <router-link to="/help" class="cta-button secondary">
-            <span>Learn More</span>
-          </router-link>
+          <a href="#research-tools" class="cta-button secondary">
+            <span>Explore Research Tools</span>
+          </a>
         </div>
         <div class="hero-stats">
           <div class="stat-item">
             <span class="stat-number">18+</span>
-            <span class="stat-label">AI Models</span>
+            <span class="stat-label">Microservices</span>
           </div>
           <div class="stat-divider"></div>
           <div class="stat-item">
@@ -59,13 +59,24 @@
       </div>
     </div>
 
+    <section id="research-tools" class="research-directory">
+      <div class="section-container container">
+        <div class="section-header"><span class="section-badge">A CONNECTED RESEARCH WORKFLOW</span><h2 class="section-title">Ask about enzymes.<br />Follow the evidence.</h2><p class="section-desc">Integrate sequence representations, molecular interactions and functional-site analysis to build testable hypotheses for enzyme research.</p></div>
+        <div class="research-principles"><article><span>01 / DISCOVER</span><h3>Characterize enzymatic function</h3><p>Move from sequence to enzyme identity, EC classification and curated biological context.</p></article><article><span>02 / INVESTIGATE</span><h3>Connect molecules and mechanisms</h3><p>Explore substrate compatibility, kinetic predictions and residues in their structural context.</p></article><article><span>03 / INTERPRET</span><h3>Keep evidence within reach</h3><p>Revisit saved analyses, inspect their inputs and continue the discussion with the research Agent.</p></article></div>
+        <div class="directory-heading"><div><h3>Choose your research tool</h3><p>Start with an example or bring your own sequence and molecule.</p></div><label>Find a tool<input v-model="toolSearch" type="search" placeholder="Try kinetics, sequence or structure" /></label></div>
+        <div class="directory-grid"><router-link v-for="tool in visibleTools" :key="tool.id" :to="tool.path" class="directory-tool"><span>{{ tool.category }}</span><h4>{{ tool.title }} <b aria-hidden="true">↗</b></h4><p>{{ tool.description }}</p></router-link></div>
+        <p v-if="!visibleTools.length" role="status">No matching tools. Try a broader search.</p>
+        <div class="directory-footer"><router-link to="/results">Open saved results →</router-link><router-link to="/help">Read the research guide →</router-link></div>
+      </div>
+    </section>
+
     <!-- Features Section -->
     <section class="features-section">
-      <div class="section-container">
+      <div class="section-container container">
         <div class="section-header">
           <span class="section-badge">Features</span>
-          <h2 class="section-title">Platform Capabilities</h2>
-          <p class="section-desc">Comprehensive tools for enzyme analysis and prediction</p>
+          <h2 class="section-title">Core Prediction Modules</h2>
+          <p class="section-desc">Predictive models for enzyme annotation and engineering-oriented analyses</p>
         </div>
         <div class="features-grid">
           <div 
@@ -75,8 +86,10 @@
             :style="{ animationDelay: `${index * 0.1}s` }"
           >
             <div class="feature-icon-wrapper">
-              <div class="feature-icon">{{ feature.icon }}</div>
-              <div class="feature-glow"></div>
+              <div class="feature-icon" :style="{ '--icon-color': feature.color }">
+                <component :is="getIcon(feature.iconKey)" />
+              </div>
+              <div class="feature-glow" :style="{ '--glow-color': feature.color }"></div>
             </div>
             <h3 class="feature-title">{{ feature.title }}</h3>
             <p class="feature-desc">{{ feature.description }}</p>
@@ -92,11 +105,11 @@
 
     <!-- Quick Start Section -->
     <section class="quickstart-section">
-      <div class="section-container">
+      <div class="section-container container">
         <div class="section-header">
-          <span class="section-badge">Quick Access</span>
-          <h2 class="section-title">Start Your Analysis</h2>
-          <p class="section-desc">Jump directly to any tool</p>
+          <span class="section-badge">UTILITY SHORTCUTS</span>
+          <h2 class="section-title">Practical Utilities</h2>
+          <p class="section-desc">Jump directly to essential tools for sequence, structure, and database access</p>
         </div>
         <div class="quickstart-grid">
           <router-link 
@@ -106,7 +119,9 @@
             class="quickstart-card"
             :style="{ animationDelay: `${index * 0.05}s` }"
           >
-            <span class="quickstart-icon">{{ item.icon }}</span>
+            <span class="quickstart-icon" :style="{ '--icon-color': item.color }">
+              <component :is="getIcon(item.iconKey)" />
+            </span>
             <span class="quickstart-text">{{ item.title }}</span>
             <span class="quickstart-arrow">→</span>
           </router-link>
@@ -116,19 +131,19 @@
 
     <!-- Tech Stack Section -->
     <section class="tech-section">
-      <div class="section-container">
+      <div class="section-container container">
         <div class="tech-content">
           <div class="tech-text">
             <span class="section-badge">Technology</span>
-            <h2 class="section-title">Powered by Cutting-Edge AI</h2>
+            <h2 class="section-title">Built for Reliable, Tool-Grounded Enzyme Analysis</h2>
             <p class="tech-desc">
-              EnzyMind leverages state-of-the-art machine learning models including 
-              ESM, ProtTrans, and custom deep learning architectures trained on 
-              millions of enzyme sequences and structures.
+              EnzyMind brings tool-grounded AI to enzyme research through an LLM-orchestrated 
+              agent. It integrates domain-specific predictors, curated databases, and structural 
+              utilities to deliver reproducible, end-to-end enzyme analysis.
             </p>
             <div class="tech-tags">
-              <span class="tech-tag">ESMFold</span>
-              <span class="tech-tag">LangChain</span>
+              <span class="tech-tag">RDKit</span>
+              <span class="tech-tag">n8n</span>
               <span class="tech-tag">FastAPI</span>
               <span class="tech-tag">Vue 3</span>
               <span class="tech-tag">PyTorch</span>
@@ -166,57 +181,152 @@
 </template>
 
 <script setup>
+import { h, ref, computed } from 'vue'
+import { TOOLS } from '@/config/tools'
+const toolSearch = ref('')
+const visibleTools = computed(() => TOOLS.filter(t => `${t.title} ${t.description} ${t.category}`.toLowerCase().includes(toolSearch.value.toLowerCase())))
 import heroImage from '@/assets/enzyme_ai_dark_v3.png'
+
+// Professional SVG Icons (Lucide-style)
+const icons = {
+  // Enzyme Recognition - DNA Scan icon
+  dna: h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
+    h('path', { d: 'M2 15c6.667-6 13.333 0 20-6' }),
+    h('path', { d: 'M9 22c1.798-1.998 2.518-3.995 2.807-5.993' }),
+    h('path', { d: 'M15 2c-1.798 1.998-2.518 3.995-2.807 5.993' }),
+    h('path', { d: 'M17 6l-2.5-2.5' }),
+    h('path', { d: 'M14 8l-3-3' }),
+    h('path', { d: 'M7 18l2.5 2.5' }),
+    h('path', { d: 'M3.5 14.5l.5.5' }),
+    h('path', { d: 'M20 9l.5.5' }),
+    h('path', { d: 'M6.5 12.5l1 1' }),
+    h('path', { d: 'M16.5 10.5l1 1' }),
+    h('path', { d: 'M10 16l-3 3' })
+  ]),
+  // EC Number - Hash/Tag icon
+  hash: h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
+    h('line', { x1: '4', y1: '9', x2: '20', y2: '9' }),
+    h('line', { x1: '4', y1: '15', x2: '20', y2: '15' }),
+    h('line', { x1: '10', y1: '3', x2: '8', y2: '21' }),
+    h('line', { x1: '16', y1: '3', x2: '14', y2: '21' })
+  ]),
+  // Enzyme Recommendation - Lightbulb icon
+  lightbulb: h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
+    h('path', { d: 'M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5' }),
+    h('path', { d: 'M9 18h6' }),
+    h('path', { d: 'M10 22h4' })
+  ]),
+  // Substrate Determination - Key icon
+  key: h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
+    h('circle', { cx: '7.5', cy: '15.5', r: '5.5' }),
+    h('path', { d: 'M11.5 11.5L22 1' }),
+    h('path', { d: 'M16 6l4 4' }),
+    h('path', { d: 'M21.5 1.5l-4 4' })
+  ]),
+  // Kinetic Parameters - Activity/Chart icon
+  activity: h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
+    h('path', { d: 'M22 12h-4l-3 9L9 3l-3 9H2' })
+  ]),
+  // Active Site - Crosshair/Target icon
+  crosshair: h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
+    h('circle', { cx: '12', cy: '12', r: '10' }),
+    h('line', { x1: '22', y1: '12', x2: '18', y2: '12' }),
+    h('line', { x1: '6', y1: '12', x2: '2', y2: '12' }),
+    h('line', { x1: '12', y1: '6', x2: '12', y2: '2' }),
+    h('line', { x1: '12', y1: '22', x2: '12', y2: '18' })
+  ]),
+  // Quick Start icons
+  flask: h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
+    h('path', { d: 'M9 3h6' }),
+    h('path', { d: 'M10 9V3' }),
+    h('path', { d: 'M14 9V3' }),
+    h('path', { d: 'M6 21h12l-4.2-9H10.2z' }),
+    h('path', { d: 'M8 16h8' })
+  ]),
+  tag: h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
+    h('path', { d: 'M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z' }),
+    h('path', { d: 'M7 7h.01' })
+  ]),
+  trendingUp: h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
+    h('polyline', { points: '22 7 13.5 15.5 8.5 10.5 2 17' }),
+    h('polyline', { points: '16 7 22 7 22 13' })
+  ]),
+  trendingDown: h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
+    h('polyline', { points: '22 17 13.5 8.5 8.5 13.5 2 7' }),
+    h('polyline', { points: '16 17 22 17 22 11' })
+  ]),
+  fileText: h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
+    h('path', { d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' }),
+    h('polyline', { points: '14 2 14 8 20 8' }),
+    h('line', { x1: '16', y1: '13', x2: '8', y2: '13' }),
+    h('line', { x1: '16', y1: '17', x2: '8', y2: '17' }),
+    h('polyline', { points: '10 9 9 9 8 9' })
+  ]),
+  beaker: h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
+    h('path', { d: 'M4.5 3h15' }),
+    h('path', { d: 'M6 3v16a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V3' }),
+    h('path', { d: 'M6 14h12' })
+  ])
+}
 
 const features = [
   {
-    icon: '🧪',
+    iconKey: 'dna',
     title: 'Enzyme Recognition',
-    description: 'Identify whether a protein sequence is an enzyme using advanced ML models.',
-    link: '/predict/enzyme'
+    description: 'Determine whether a protein is an enzyme using its sequence or UniProt accession.',
+    link: '/predict/enzyme',
+    color: '#0ea5e9' // Sky blue - bioinformatics/DNA
   },
   {
-    icon: '🏷️',
+    iconKey: 'hash',
     title: 'EC Number Prediction',
-    description: 'Predict enzyme commission numbers for accurate functional classification.',
-    link: '/predict/ec'
+    description: 'Predict enzyme EC numbers from protein sequences to characterize catalytic functions.',
+    link: '/predict/ec',
+    color: '#8b5cf6' // Purple - classification/numbering systems
   },
   {
-    icon: '📊',
-    title: 'Kinetic Parameters',
-    description: 'Predict kcat and Km values for enzyme-substrate pairs with high accuracy.',
-    link: '/predict/kcat'
+    iconKey: 'lightbulb',
+    title: 'Enzyme Recommendation',
+    description: 'Identify candidate enzyme classes capable of catalyzing a given chemical transformation.',
+    link: '/predict/recommendation',
+    color: '#f59e0b' // Amber - inspiration/intelligent recommendations
   },
   {
-    icon: '🎯',
-    title: 'Active Site Prediction',
-    description: 'Identify catalytic residues and functional sites in enzyme sequences.',
-    link: '/predict/activesite'
+    iconKey: 'key',
+    title: 'Substrate Determination',
+    description: 'Predict whether a given molecule is a potential substrate for a specific enzyme.',
+    link: '/predict/substrate',
+    color: '#10b981' // Emerald - lock-and-key matching/substrates
   },
   {
-    icon: '🔬',
-    title: 'Structure Prediction',
-    description: 'Generate 3D protein structures using ESMFold technology.',
-    link: '/utility/structure'
+    iconKey: 'activity',
+    title: 'Kinetic Parameter Prediction',
+    description: 'Predict kcat and Km for enzyme-substrate pairs.',
+    link: '/predict/kcat',
+    color: '#ef4444' // Red - kinetics/vitality
   },
   {
-    icon: '📋',
-    title: 'Comprehensive Analysis',
-    description: 'Access complete enzyme information from UniProt and other databases.',
-    link: '/utility/enzyme-info'
+    iconKey: 'crosshair',
+    title: 'Active Site Annotation',
+    description: 'Identify potential catalytic and substrate-binding residues in enzyme sequences and structures.',
+    link: '/predict/activesite',
+    color: '#ec4899' // Pink - precise localization
   }
 ]
 
 const quickStartItems = [
-  { icon: '🧪', title: 'Enzyme Recognition', path: '/predict/enzyme' },
-  { icon: '🏷️', title: 'EC Prediction', path: '/predict/ec' },
-  { icon: '💡', title: 'Enzyme Recommendation', path: '/predict/recommendation' },
-  { icon: '🧫', title: 'Substrate Prediction', path: '/predict/substrate' },
-  { icon: '📈', title: 'Kcat Prediction', path: '/predict/kcat' },
-  { icon: '📉', title: 'Km Prediction', path: '/predict/km' },
-  { icon: '🎯', title: 'Active Sites', path: '/predict/activesite' },
-  { icon: '📋', title: 'Enzyme Info', path: '/utility/enzyme-info' },
+  // { iconKey: 'flask', title: 'Enzyme Recognition', path: '/predict/enzyme', color: '#0ea5e9' },
+  // { iconKey: 'tag', title: 'EC Prediction', path: '/predict/ec', color: '#8b5cf6' },
+  // { iconKey: 'lightbulb', title: 'Enzyme Recommendation', path: '/predict/recommendation', color: '#f59e0b' },
+  // { iconKey: 'beaker', title: 'Substrate Prediction', path: '/predict/substrate', color: '#10b981' },
+  { iconKey: 'trendingUp', title: 'Enzyme Info', path: '/utility/enzyme-info', color: '#ef4444' },
+  { iconKey: 'trendingDown', title: 'Sequence Parameters', path: '/utility/parameters', color: '#f97316' },
+  { iconKey: 'crosshair', title: 'Structure Prediction', path: '/utility/structure', color: '#ec4899' },
+  { iconKey: 'fileText', title: 'Sequence Alignment', path:'/utility/alignment', color: '#6366f1' },
 ]
+
+// Helper to get icon component
+const getIcon = (key) => icons[key]
 
 const getParticleStyle = (i) => {
   const size = Math.random() * 4 + 2
@@ -242,6 +352,25 @@ const getHelixParticleStyle = (i) => {
 </script>
 
 <style lang="scss" scoped>
+.research-directory {padding:80px 0;scroll-margin-top:90px;background:var(--color-background);}
+.research-principles {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:32px;margin:36px 0 52px;}
+.research-principles article {border-top:2px solid var(--color-primary);padding-top:20px;}
+.research-principles span,.directory-tool>span {font-size:11px;letter-spacing:.08em;color:var(--color-primary);font-weight:600;text-transform:uppercase;}
+.research-principles h3 {font-size:19px;margin:12px 0;}
+.research-principles p,.directory-heading p,.directory-tool p {font-size:14px;line-height:1.7;color:var(--color-text-secondary);}
+.directory-heading {display:flex;justify-content:space-between;gap:24px;align-items:end;margin-bottom:22px;}
+.directory-heading h3 {font-size:24px;}
+.directory-heading label {font-size:12px;display:grid;gap:6px;min-width:290px;}
+.directory-heading input {border:1px solid var(--color-border);border-radius:8px;padding:12px;font:inherit;font-size:14px;background:var(--color-surface);}
+.directory-grid {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;}
+.directory-tool {display:block;padding:22px;border:1px solid var(--color-border);border-radius:12px;background:var(--color-surface);text-decoration:none;color:var(--color-text);transition:border-color .15s,box-shadow .15s;}
+.directory-tool:hover {border-color:var(--color-primary);box-shadow:0 4px 16px #463a8a12;}
+.directory-tool h4 {font-size:17px;margin:10px 0;}
+.directory-tool b {float:right;color:var(--color-primary);}
+.directory-footer {display:flex;gap:24px;flex-wrap:wrap;margin-top:24px;font-size:14px;}
+@media(max-width:900px){.directory-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.research-principles{gap:20px;}}
+@media(max-width:600px){.directory-grid,.research-principles{grid-template-columns:1fr;}.directory-heading{display:block;}.directory-heading label{margin-top:18px;min-width:0;}.research-directory{padding:48px 0;}}
+
 .home-page {
   min-height: 100vh;
   overflow-x: hidden;
@@ -337,8 +466,6 @@ const getHelixParticleStyle = (i) => {
 .hero-content {
   position: relative;
   z-index: 10;
-  max-width: 800px;
-  padding: 0 var(--spacing-lg);
   animation: fadeInUp 1s ease-out;
 }
 
@@ -546,11 +673,6 @@ const getHelixParticleStyle = (i) => {
 }
 
 // ========== Section Styles ==========
-.section-container {
-  max-width: var(--content-max-width);
-  margin: 0 auto;
-  padding: 0 var(--spacing-lg);
-}
 
 .section-header {
   text-align: center;
@@ -658,15 +780,25 @@ const getHelixParticleStyle = (i) => {
 }
 
 .feature-icon {
-  font-size: 3.5rem;
-  display: block;
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: transform var(--transition-normal);
+  
+  :deep(svg) {
+    width: 100%;
+    height: 100%;
+    stroke: var(--icon-color, var(--color-primary));
+    stroke-width: 1.5;
+  }
 }
 
 .feature-glow {
   position: absolute;
   inset: -20px;
-  background: radial-gradient(circle, rgba(37, 99, 235, 0.2) 0%, transparent 70%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--glow-color, #2563eb) 25%, transparent) 0%, transparent 70%);
   opacity: 0;
   transition: opacity var(--transition-normal);
   border-radius: 50%;
@@ -754,8 +886,19 @@ const getHelixParticleStyle = (i) => {
 }
 
 .quickstart-icon {
-  font-size: 2rem;
+  width: 32px;
+  height: 32px;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  
+  :deep(svg) {
+    width: 100%;
+    height: 100%;
+    stroke: var(--icon-color, var(--color-primary));
+    stroke-width: 1.5;
+  }
 }
 
 .quickstart-text {
@@ -992,15 +1135,15 @@ const getHelixParticleStyle = (i) => {
 }
 
 @media (max-width: 768px) {
-  // Hero 区域移动端适配 - 添加顶部 padding 避免导航栏遮挡
+  // Mobile hero layout: add top padding to avoid navbar overlap
   .hero {
     padding-top: var(--navbar-height);
     min-height: 100vh;
-    min-height: 100dvh; // 使用动态视口高度，解决移动端浏览器地址栏问题
+    min-height: 100dvh; // Use dynamic viewport height to account for mobile browser address bars
   }
   
   .hero-content {
-    padding: var(--spacing-md);
+    padding-block: var(--spacing-md);
     padding-top: var(--spacing-lg);
   }
   
@@ -1069,7 +1212,7 @@ const getHelixParticleStyle = (i) => {
   }
   
   .hero-content {
-    padding: var(--spacing-sm);
+    padding-block: var(--spacing-sm);
   }
   
   .hero-badge {
@@ -1110,10 +1253,6 @@ const getHelixParticleStyle = (i) => {
     .stat-label {
       font-size: 0.8rem;
     }
-  }
-  
-  .section-container {
-    padding: 0 var(--spacing-sm);
   }
   
   .section-title {

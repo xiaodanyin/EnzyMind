@@ -3,7 +3,13 @@ Utility Functions for Kcat Prediction Service
 kcat预测服务工具函数
 """
 import re
-import requests
+import sys
+from pathlib import Path
+
+root = str(Path(__file__).resolve().parents[3])
+if root not in sys.path:
+    sys.path.insert(0, root)
+from shared.uniprot import uniprot_sequence_client
 
 
 def is_amino_acid_sequence(input_str: str) -> bool:
@@ -47,21 +53,8 @@ def extract_sequence_from_fasta_content(fasta_text: str) -> str:
 
 
 def get_uniprot_sequence(uniprot_id: str) -> str:
-    """从UniProt ID获取蛋白质序列"""
-    url = f"https://www.uniprot.org/uniprot/{uniprot_id}.fasta"
-    response = requests.get(url, timeout=30)
-    
-    if response.status_code == 200:
-        return extract_sequence_from_fasta_content(response.text)
-    
-    # 尝试新的API
-    url = f"https://rest.uniprot.org/uniprotkb/{uniprot_id}.fasta"
-    response = requests.get(url, timeout=30)
-    
-    if response.status_code == 200:
-        return extract_sequence_from_fasta_content(response.text)
-    
-    raise ValueError(f"Failed to retrieve sequence for UniProt ID: {uniprot_id}")
+    """Retrieve a validated sequence through the bounded shared transport."""
+    return uniprot_sequence_client.fetch(uniprot_id).sequence
 
 
 def classify_input(input_string: str) -> str:

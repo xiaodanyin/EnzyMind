@@ -5,7 +5,7 @@ Substrate Prediction Service - FastAPI Main Application
 import os
 import re
 import tempfile
-import requests
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -15,6 +15,10 @@ from pydantic import BaseModel
 # 项目根目录和文件目录
 SERVICE_ROOT = Path(__file__).parent
 PROJECT_ROOT = Path(__file__).parent.parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from shared.uniprot import uniprot_sequence_client
+
 FILES_DIR = PROJECT_ROOT / "files"
 FASTA_DIR = FILES_DIR / "fasta"
 ESM_DIR = FILES_DIR / "esm"
@@ -57,16 +61,8 @@ def is_fasta_content(content: str) -> bool:
 
 
 def get_uniprot_sequence(uniprot_id: str) -> str:
-    """从UniProt获取蛋白质序列"""
-    url = f"https://rest.uniprot.org/uniprotkb/{uniprot_id}.fasta"
-    response = requests.get(url, timeout=30)
-    
-    if response.status_code == 200:
-        lines = response.text.strip().split('\n')
-        sequence = ''.join(lines[1:])
-        return sequence
-    else:
-        raise ValueError(f"Failed to retrieve sequence for UniProt ID: {uniprot_id}")
+    """Retrieve a validated sequence through the bounded shared transport."""
+    return uniprot_sequence_client.fetch(uniprot_id).sequence
 
 
 def clean_sequence(seq: str) -> str:

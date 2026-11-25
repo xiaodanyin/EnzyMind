@@ -2,16 +2,17 @@
   <Transition name="result-slide">
     <div class="result-box" :class="[status, { 'show': show }]" v-show="show">
       <div class="result-glow"></div>
-      <div class="result-header">
+      <div v-if="!savedRecord" class="result-header">
         <div class="status-badge" :class="status">
           <span class="status-icon">{{ statusIcon }}</span>
         </div>
         <h3 class="result-title">{{ title }}</h3>
       </div>
       <div class="result-content">
-        <slot></slot>
+        <ResearchResult v-if="savedRecord && show" :record="savedRecord" />
+        <slot v-else></slot>
       </div>
-      <div class="result-actions" v-if="showCopy">
+      <div class="result-actions" v-if="showCopy && !savedRecord">
         <button 
           class="copy-btn" 
           :class="{ 'copied': isCopied }"
@@ -37,6 +38,12 @@
 
 <script setup>
 import { ref, computed } from 'vue'
+import { useRoute } from 'vue-router'
+import ResearchResult from './ResearchResult.vue'
+import { platformResults, endpointForRoute } from '@/utils/workspace'
+
+const route = useRoute()
+const savedRecord = computed(() => props.status === 'error' ? null : platformResults[endpointForRoute[route.path]])
 
 const props = defineProps({
   show: {

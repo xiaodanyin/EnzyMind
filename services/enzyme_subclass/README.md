@@ -1,8 +1,8 @@
-# Enzyme Subclass Service - Enzyme Subclass Query Microservice
+# Enzyme Subclass Service
 
 ## Overview
 
-The Enzyme Subclass Service queries enzyme subclass information from a local enzyme database, retrieving EC numbers, descriptions, catalytic activities, and associated UniProt IDs for specific enzyme classes.
+This service retrieves enzyme subclasses from a local enzyme database, including EC numbers, descriptions, catalytic activities and associated UniProt accessions.
 
 ## Port
 
@@ -10,16 +10,16 @@ The Enzyme Subclass Service queries enzyme subclass information from a local enz
 
 ## Features
 
-- Query subclass info by enzyme class name
-- Supports multiple naming formats (case-insensitive)
-- Random sampling with optional seed
-- Markdown-formatted output
-- Database statistics query
-- Supports JSON and Form input formats
+- Look up subclasses by enzyme class name
+- Accept multiple naming formats, case-insensitively
+- Random sampling with an optional seed
+- Markdown output
+- Database statistics
+- JSON and form inputs
 
-## Supported Enzyme Classes
+## Supported enzyme classes
 
-| Enzyme Class | EC Prefix | Example Input |
+| Enzyme class | EC prefix | Example input |
 |----------|---------|----------|
 | Oxidoreductases | 1 | oxidoreductase, Oxidoreductases |
 | Transferases | 2 | transferase, Transferases |
@@ -29,23 +29,23 @@ The Enzyme Subclass Service queries enzyme subclass information from a local enz
 | Ligases | 6 | ligase, Ligases |
 | Translocases | 7 | translocase, Translocases |
 
-## API Endpoints
+## API endpoints
 
 | Endpoint | Method | Description |
-|----------|--------|-------------|
+|------|------|------|
 | `/health` | GET | Health check |
 | `/api/query/enzyme-subclass` | POST | Subclass query (JSON) |
 | `/api/query/enzyme-subclass/form` | POST | Subclass query (form) |
-| `/api/enzyme-classes` | GET | Get all enzyme class list |
-| `/api/statistics` | GET | Get database statistics |
-| `/query/enzyme-subclass` | POST | Legacy-compatible API |
+| `/api/enzyme-classes` | GET | List enzyme classes |
+| `/api/statistics` | GET | Database statistics |
+| `/query/enzyme-subclass` | POST | Legacy API compatibility |
 
 ## Installation
 
-### 1. Create virtual environment
+### 1. Create a virtual environment
 
 ```bash
-cd /path/to/Enzymind/services/enzyme_subclass
+cd /path/to/EnzyMind/services/enzyme_subclass
 python3 -m venv venv
 source venv/bin/activate
 ```
@@ -56,9 +56,9 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Prepare data file
+### 3. Prepare the data file
 
-Ensure `data/enzy_database_processed.txt` exists. File format:
+Ensure `data/enzy_database_processed.txt` exists. Its format is:
 
 ```text
 ID   1.1.1.1
@@ -68,15 +68,15 @@ DR   P00325, ADH1A_HUMAN; P00326, ADH1B_HUMAN;
 //
 ```
 
-### 4. Start service
+### 4. Start the service
 
 ```bash
 python main.py
 ```
 
-The service will start at http://localhost:18912.
+The service runs at http://localhost:18912.
 
-## Usage Examples
+## Examples
 
 ### Health check
 
@@ -93,7 +93,7 @@ Response:
 }
 ```
 
-### Get all enzyme classes
+### List enzyme classes
 
 ```bash
 curl http://localhost:18912/api/enzyme-classes
@@ -114,7 +114,7 @@ Response:
 }
 ```
 
-### Query enzyme subclass (JSON format)
+### Query enzyme subclasses (JSON)
 
 ```bash
 curl -X POST http://localhost:18912/api/query/enzyme-subclass \
@@ -148,7 +148,7 @@ Response:
 }
 ```
 
-### Query enzyme subclass (form format)
+### Query enzyme subclasses (form)
 
 ```bash
 curl -X POST http://localhost:18912/api/query/enzyme-subclass/form \
@@ -157,7 +157,7 @@ curl -X POST http://localhost:18912/api/query/enzyme-subclass/form \
   -d "seed=42"
 ```
 
-### Query using lowercase name
+### Query with a lowercase class name
 
 ```bash
 curl -X POST http://localhost:18912/api/query/enzyme-subclass \
@@ -209,37 +209,37 @@ Response:
 }
 ```
 
-## API Docs
+## API documentation
 
-After the service starts, visit the following URLs for interactive API documentation:
+After starting the service, open the interactive API documentation:
 
 - **Swagger UI**: http://localhost:18912/docs
 - **ReDoc**: http://localhost:18912/redoc
 
-## Response Fields
+## Response fields
 
-### Subclass Query Response
+### Subclass query response
 
 | Field | Type | Description |
-|-------|------|-------------|
-| `success` | boolean | Query success |
+|------|------|------|
+| `success` | boolean | Whether the query succeeded |
 | `enzyme_class` | string/null | Normalized enzyme class name |
-| `ec_prefix` | int/null | EC number prefix (1-7) |
-| `result` | string/null | Markdown-formatted result |
-| `subclasses` | array | Subclass data list |
+| `ec_prefix` | int/null | EC prefix (1–7) |
+| `result` | string/null | Markdown result |
+| `subclasses` | array | Subclass records |
 | `total_available` | int/null | Total available subclasses |
-| `sampled` | int/null | Sampled count |
+| `sampled` | int/null | Number sampled |
 | `error` | string/null | Error message |
-| `valid_classes` | array/null | Valid enzyme class names (only on invalid input) |
+| `valid_classes` | array/null | Valid class names, returned for invalid input |
 
-### Subclass Entry Structure
+### Subclass record
 
 | Field | Type | Description |
-|-------|------|-------------|
+|------|------|------|
 | `ID` | string | EC number |
 | `DE` | string | Enzyme description |
-| `CA` | array | Catalytic activity list |
-| `DR` | array | UniProt ID list |
+| `CA` | array | Catalytic activities |
+| `DR` | array | UniProt accessions |
 
 ## Tests
 
@@ -250,20 +250,20 @@ source venv/bin/activate
 pytest tests/ -v
 ```
 
-## Data File Format
+## Data file format
 
-The data file uses the following format:
+The data file uses this format:
 
 ```text
 ID   <EC number>
-DE   <Enzyme description>
-CA   <Catalytic activity 1>
-CA   <Catalytic activity 2>
-DR   <UniProt ID list, semicolon-separated>
+DE   <enzyme description>
+CA   <catalytic activity 1>
+CA   <catalytic activity 2>
+DR   <semicolon-separated UniProt accessions>
 //
 ```
 
-`//` serves as the entry separator.
+`//` separates records.
 
 ## License
 

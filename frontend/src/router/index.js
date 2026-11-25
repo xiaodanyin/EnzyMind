@@ -2,6 +2,12 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 const routes = [
   {
+    path: '/results/:id?',
+    name: 'Results',
+    component: () => import('@/views/Results.vue'),
+    meta: { title: 'Research Results' }
+  },
+  {
     path: '/',
     name: 'Home',
     component: () => import('@/views/Home.vue'),
@@ -29,7 +35,7 @@ const routes = [
     path: '/predict/substrate',
     name: 'SubstratePrediction',
     component: () => import('@/views/predict/SubstratePrediction.vue'),
-    meta: { title: 'Substrate Prediction', category: 'prediction' }
+    meta: { title: 'Substrate Determination', category: 'prediction' }
   },
   {
     path: '/predict/kcat',

@@ -1,36 +1,34 @@
 <template>
-  <header class="app-header" :class="{ 'scrolled': isScrolled, 'transparent': isHomePage && !isScrolled }">
-    <div class="header-container">
+  <header @keydown.esc="closeMobileMenu" class="app-header" :class="{ 'scrolled': isScrolled, 'transparent': isHomePage && !isScrolled }">
+    <div class="header-container container">
       <router-link to="/" class="logo">
         <div class="logo-glow"></div>
         <img src="@/assets/enzymind_logo_icon_v3.png" alt="EnzyMind" class="logo-icon" />
         <span class="logo-text">EnzyMind</span>
       </router-link>
 
-      <button class="mobile-menu-btn" @click="toggleMobileMenu" aria-label="Toggle menu">
+      <button class="mobile-menu-btn" @click="toggleMobileMenu" :aria-expanded="mobileMenuOpen" aria-controls="main-navigation" aria-label="Toggle menu">
         <span class="hamburger" :class="{ 'active': mobileMenuOpen }"></span>
       </button>
 
-      <nav class="nav-menu" :class="{ 'open': mobileMenuOpen }">
+      <nav id="main-navigation" aria-label="Main navigation" class="nav-menu" :class="{ 'open': mobileMenuOpen }">
         <router-link to="/" class="nav-link" @click="closeMobileMenu">
-          <span class="nav-icon">🏠</span>
           Home
         </router-link>
         
         <router-link to="/agent" class="nav-link" @click="closeMobileMenu">
-          <span class="nav-icon">🤖</span>
-          Agent
+          Workspace
         </router-link>
+        <router-link to="/results" class="nav-link" @click="closeMobileMenu">Results</router-link>
         
-        <div class="nav-dropdown">
-          <button class="nav-link dropdown-trigger">
-            <span class="nav-icon">🔮</span>
+        <div class="nav-dropdown" :class="{ 'is-open': openDropdown === 'prediction' }" @focusout="closeDropdownOnExit">
+          <button class="nav-link dropdown-trigger" @click="openDropdown = openDropdown === 'prediction' ? '' : 'prediction'" :aria-expanded="openDropdown === 'prediction'" aria-controls="prediction-menu">
             Prediction
             <svg class="dropdown-arrow" viewBox="0 0 24 24" width="16" height="16">
               <path fill="currentColor" d="M7 10l5 5 5-5z"/>
             </svg>
           </button>
-          <div class="dropdown-menu">
+          <div id="prediction-menu" class="dropdown-menu">
             <router-link to="/predict/enzyme" @click="closeMobileMenu">
               <span class="menu-icon">🔍</span>
               Enzyme Recognition
@@ -45,7 +43,7 @@
             </router-link>
             <router-link to="/predict/substrate" @click="closeMobileMenu">
               <span class="menu-icon">⚛️</span>
-              Substrate Prediction
+              Substrate Determination
             </router-link>
             <router-link to="/predict/kcat" @click="closeMobileMenu">
               <span class="menu-icon">⚡</span>
@@ -57,20 +55,19 @@
             </router-link>
             <router-link to="/predict/activesite" @click="closeMobileMenu">
               <span class="menu-icon">🎯</span>
-              Active Site Prediction
+              Active Site Annotation
             </router-link>
           </div>
         </div>
 
-        <div class="nav-dropdown">
-          <button class="nav-link dropdown-trigger">
-            <span class="nav-icon">🛠️</span>
+        <div class="nav-dropdown" :class="{ 'is-open': openDropdown === 'utility' }" @focusout="closeDropdownOnExit">
+          <button class="nav-link dropdown-trigger" @click="openDropdown = openDropdown === 'utility' ? '' : 'utility'" :aria-expanded="openDropdown === 'utility'" aria-controls="utility-menu">
             Utility
             <svg class="dropdown-arrow" viewBox="0 0 24 24" width="16" height="16">
               <path fill="currentColor" d="M7 10l5 5 5-5z"/>
             </svg>
           </button>
-          <div class="dropdown-menu">
+          <div id="utility-menu" class="dropdown-menu">
             <router-link to="/utility/enzyme-info" @click="closeMobileMenu">
               <span class="menu-icon">📖</span>
               Enzyme Information
@@ -91,7 +88,6 @@
         </div>
 
         <router-link to="/help" class="nav-link" @click="closeMobileMenu">
-          <span class="nav-icon">📚</span>
           Help
         </router-link>
       </nav>
@@ -104,6 +100,8 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 
 const route = useRoute()
+const openDropdown = ref('')
+const closeDropdownOnExit = event => {if (!event.currentTarget.contains(event.relatedTarget)) openDropdown.value = ''}
 const mobileMenuOpen = ref(false)
 const isScrolled = ref(false)
 
@@ -126,6 +124,7 @@ const toggleMobileMenu = () => {
 }
 
 const closeMobileMenu = () => {
+  openDropdown.value = ''
   mobileMenuOpen.value = false
 }
 </script>
@@ -147,7 +146,7 @@ const closeMobileMenu = () => {
     -webkit-backdrop-filter: blur(20px);
   }
 
-  // 首页透明模式 - 完全透明融入 hero 背景
+  // Transparent home-page header blends into the hero background
   &.transparent {
     background: transparent;
     box-shadow: none;
@@ -155,10 +154,7 @@ const closeMobileMenu = () => {
 }
 
 .header-container {
-  max-width: var(--container-max-width);
   height: 100%;
-  margin: 0 auto;
-  padding: 0 var(--spacing-lg);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -309,7 +305,7 @@ const closeMobileMenu = () => {
     visibility: hidden;
     transition: all var(--transition-fast);
     
-    // 顶部小三角
+    // Small triangle at the top
     &::before {
       content: '';
       position: absolute;
@@ -363,7 +359,7 @@ const closeMobileMenu = () => {
     }
   }
   
-  &:hover {
+  &.is-open {
     .dropdown-menu {
       opacity: 1;
       visibility: visible;
@@ -485,7 +481,7 @@ const closeMobileMenu = () => {
       padding: var(--spacing-xs);
       min-width: 100%;
       
-      // 隐藏小三角
+      // Hide the small triangle
       &::before {
         display: none;
       }

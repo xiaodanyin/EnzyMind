@@ -1,0 +1,191 @@
+{
+  "date": "2026-11-06",
+  "scope": "EnzyMind usability, scientific visualization and Agent memory implementation",
+  "build": {
+    "status": "passed",
+    "command": "cd frontend && npm run build",
+    "note": "Ketcher, Indigo WASM and Mol* are loaded on demand; Vite reports large visualization chunks."
+  },
+  "automated_tests": [
+    {
+      "suite": "Frontend input, residue mapping and scientific result normalization",
+      "passed": 16,
+      "failed": 0,
+      "command": "cd frontend && npm test"
+    },
+    {
+      "suite": "n8n workflow graph and context compression code (offline)",
+      "passed": 7,
+      "failed": 0,
+      "command": "node agent_n8n/workspace/tests/workflow.test.mjs"
+    },
+    {
+      "suite": "Gateway API, durable memory, additive migration, lease and atomic commit",
+      "passed": 18,
+      "failed": 0,
+      "command": "gateway/venv/bin/python -m unittest discover -s gateway/tests -v"
+    },
+    {
+      "suite": "ProtParam API",
+      "passed": 13,
+      "failed": 0,
+      "command": "cd services/protparam && venv/bin/python -m pytest tests/test_api.py -q"
+    },
+    {
+      "suite": "Structure prediction API",
+      "passed": 37,
+      "failed": 0,
+      "command": "cd services/structure_predict && venv/bin/python -m pytest tests/test_api.py -q"
+    },
+    {
+      "suite": "Sequence alignment API",
+      "passed": 17,
+      "failed": 0,
+      "command": "cd services/sequence_alignment && venv/bin/python -m pytest tests/test_api.py -q"
+    },
+    {
+      "suite": "Final production frontend browser regression",
+      "passed": 19,
+      "failed": 0,
+      "command": "cd frontend && ENZYMIND_TEST_URL=http://127.0.0.1:3012/enzymind/ npm run test:browser",
+      "scope": "11 tool pages, method SVG above input, FASTA selection, mobile layout, preserved Home/Hero, requests surviving navigation, real Ketcher/Indigo round trips, Mol* WebGL and camera-following labels, residue linking, exports, failure records and Agent memory UI. Scientific responses are mocked; Mol* uses an explicitly synthetic fixture on the dev server."
+    }
+  ],
+  "browser_statistics": {
+    "startTime": "2026-11-06T09:28:00.495Z",
+    "duration": 48266.507,
+    "expected": 19,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "live_scientific_services": [
+    {
+      "tool": "recognize",
+      "ok": true,
+      "http": 200,
+      "error": null,
+      "seconds": 6.88
+    },
+    {
+      "tool": "ec",
+      "ok": true,
+      "http": 200,
+      "error": null,
+      "seconds": 14.96
+    },
+    {
+      "tool": "substrate",
+      "ok": true,
+      "http": 200,
+      "error": null,
+      "seconds": 12.77
+    },
+    {
+      "tool": "kcat",
+      "ok": true,
+      "http": 200,
+      "error": null,
+      "seconds": 12.34
+    },
+    {
+      "tool": "km",
+      "ok": true,
+      "http": 200,
+      "error": null,
+      "seconds": 10.23
+    },
+    {
+      "tool": "active-sites",
+      "ok": true,
+      "http": 200,
+      "error": null,
+      "seconds": 6.6
+    },
+    {
+      "tool": "structure",
+      "ok": true,
+      "http": 200,
+      "error": null,
+      "seconds": 19.38
+    },
+    {
+      "tool": "blast",
+      "ok": false,
+      "http": 200,
+      "error": "NCBI BLAST is still queued after 14 minutes. Request ID: EV594K88016. Retrieve it at https://blast.ncbi.nlm.nih.gov/Blast.cgi?CMD=Get&RID=EV594K88016",
+      "seconds": 798.28
+    },
+    {
+      "tool": "parameters",
+      "ok": true,
+      "http": 200,
+      "error": null,
+      "seconds": 1.89
+    },
+    {
+      "tool": "enzyme-info",
+      "ok": true,
+      "http": 200,
+      "error": null,
+      "seconds": 1.45
+    },
+    {
+      "tool": "enzyme-type",
+      "ok": true,
+      "http": 200,
+      "error": null,
+      "seconds": 3.58
+    }
+  ],
+  "blast_followup": {
+    "rid": "EV594K88016",
+    "follow_up": "read-only existing request, no resubmission",
+    "status_lines": [
+      "Status=WAITING"
+    ]
+  },
+  "live_agent": {
+    "scope": "Existing running workspace workflow; new compression workflow activation is separate",
+    "turns": [
+      {
+        "status": "completed",
+        "output": "已记录。",
+        "error": null,
+        "tool_calls": 0
+      },
+      {
+        "status": "completed",
+        "output": "上一条消息指定的内容是：\n\n- **研究对象**：P00761\n- **约束**：不要运行任何预测或查询工具，只回复“已记录”。\n\n因此本轮我同样没有调用任何工具。",
+        "error": null,
+        "tool_calls": 0
+      }
+    ],
+    "passed": true
+  },
+  "visual_review": {
+    "home_desktop_mobile": "passed",
+    "tool_shortcuts": 11,
+    "mobile_horizontal_overflow": false,
+    "molstar_chart_labels_and_focus": "reviewed"
+  },
+  "deployment": {
+    "new_n8n_memory_workflow_activated": false,
+    "reason": "No n8n management API credential was configured. Existing running workflow was not replaced.",
+    "existing_gateway_and_scientific_services_restarted": false,
+    "next_step": "Restart the updated gateway and affected services, then update the existing workspace workflow using its target ID and model binding; see agent_n8n/workspace/README.md."
+  },
+  "limits": [
+    "The live BLAST request remained queued at NCBI; the interface and API regression tests passed but a live BLAST result was not obtained.",
+    "New memory compression was verified offline and through gateway/browser tests; the live two-turn memory smoke test used the existing workflow.",
+    "Automated tests do not establish scientific model accuracy or substitute for a human usability study."
+  ],
+  "temporary_artifacts": [
+    "/tmp/enzymind-final-build.log",
+    "/tmp/enzymind-final-browser.log",
+    "/tmp/enzymind-browser-report.json",
+    "/tmp/enzymind-browser-artifacts",
+    "/tmp/enzymind-home-desktop.png",
+    "/tmp/enzymind-home-mobile.png"
+  ]
+}

@@ -1,0 +1,111 @@
+请实际运行一个经典酶动力学案例，用中文回答：酿酒酵母 ADH1（UniProt P00330）对乙醇（CCO）与正丙醇（CCCO）的预测动力学比较。
+
+研究问题：哪种底物的低浓度催化效率更高？高浓度时排序是否变化？四个预测参数分别有两倍偏差时，排序是否稳健？不要预设结论。
+
+依次执行，目标为 6 次工具调用：
+1. Query Enzyme Info 查询 P00330，获取 sequence_info.sequence 中的完整原始序列。
+2. 对 CCO、CCCO 分别各调用一次 Predict kcat 和 Predict Km。四次均使用 enzyme_input_type="sequence"，enzyme_query 为刚取得的完整序列；不要使用 accession 重新下载 FASTA，不要修改序列或重复预测。
+3. 四条预测成功后调用一次 Python Analysis。code 必须完整复制下面脚本，不改写算法或绘图代码。inputs.data 只放四个真实 UUID：ek=乙醇 kcat、em=乙醇 Km、pk=正丙醇 kcat、pm=正丙醇 Km；inputs.result_ids 填这四个 UUID，inputs.file_ids=[]。不要抄写预测数值，也不要额外运行探测代码。
+
+脚本将验证预测状态与单位，用 RDKit 生成分子图和描述符，计算两种单位的 kcat/Km，并在 E=0.1 μM 活性位点浓度下，用 v=E*kcat*S/(Km+S) 计算 0.01–100 mM 的 401 点曲线及解析交点。再对四个参数各乘 0.5、1、2，穷举 81 种组合，在四个浓度下共生成 324 行敏感性结果。附件仅包含 substrates.png、analysis.png、comparison.csv、rates.csv、sensitivity.csv、summary.json。
+
+最终报告实际数值结论与文件名，区分数据库注释、模型预测、代码计算；说明辅酶饱和、条件固定、无产物积累的初速假设，以及独立预测参数的条件未必一致。敏感性组合不是概率或置信区间，Km 不等于结合亲和力，计算不是实验验证。不混入不同条件的实验参数。回答中只放一个链接：原样复制 Python Analysis 返回的结果页面 URL；不要用占位链接或附件直链。
+
+直接用于 Python Analysis 的脚本：
+```python
+import itertools
+import json
+import math
+import numpy as np
+import pandas as pd
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from rdkit import Chem
+from rdkit.Chem import Crippen, Descriptors, Draw, Lipinski, rdMolDescriptors
+
+keys = [('ek', 'kcat', 's^-1'), ('em', 'km', 'mM'), ('pk', 'kcat', 's^-1'), ('pm', 'km', 'mM')]
+values = []
+for key, field, unit in keys:
+    payload = results[data[key]]
+    assert payload['success'] is True and payload['unit'] == unit
+    value = float(payload[field])
+    assert math.isfinite(value) and value > 0
+    values.append(value)
+ke, me, kp, mp = values
+names, smiles = ['Ethanol', '1-Propanol'], ['CCO', 'CCCO']
+mols = [Chem.MolFromSmiles(s) for s in smiles]
+assert all(m is not None for m in mols)
+Draw.MolsToGridImage(mols, molsPerRow=2, subImgSize=(400, 300), legends=names).save(str(output_dir / 'substrates.png'))
+
+comparison = []
+for name, smi, mol, k, km, ki, mi in zip(names, smiles, mols, [ke, kp], [me, mp], ['ek', 'pk'], ['em', 'pm']):
+    comparison.append(dict(substrate=name, smiles=smi, MW_g_mol=Descriptors.MolWt(mol),
+        cLogP=Crippen.MolLogP(mol), TPSA_A2=rdMolDescriptors.CalcTPSA(mol),
+        HBD=Lipinski.NumHDonors(mol), HBA=Lipinski.NumHAcceptors(mol),
+        kcat_s_inv=k, Km_mM=km, efficiency_mM_inv_s_inv=k/km,
+        efficiency_M_inv_s_inv=1000*k/km, kcat_result_id=data[ki], km_result_id=data[mi]))
+pd.DataFrame(comparison).to_csv(output_dir / 'comparison.csv', index=False)
+
+def rate(k, km, s):
+    return 0.1 * k * s / (km + s)
+
+grid = np.logspace(-2, 2, 401)
+ve, vp = rate(ke, me, grid), rate(kp, mp, grid)
+pd.DataFrame(dict(S_mM=grid, ethanol_uM_s=ve, propanol_uM_s=vp)).to_csv(output_dir / 'rates.csv', index=False)
+probe = [0.1, 1.0, 10.0, 100.0]
+rates = [dict(S_mM=s, ethanol_uM_s=rate(ke, me, s), propanol_uM_s=rate(kp, mp, s)) for s in probe]
+root = (kp*me-ke*mp)/(ke-kp) if ke != kp else None
+identical = ke == kp and me == mp
+in_range = identical or (root is not None and root > 0 and 0.01 <= root <= 100)
+crossing = dict(signed_root_mM=root, identical_curves=identical, crossing_in_range=in_range,
+                grid_sign_change=bool(np.any((ve[:-1]-vp[:-1])*(ve[1:]-vp[1:]) < 0)))
+
+scenarios = []
+for a, b, c, d in itertools.product([0.5, 1.0, 2.0], repeat=4):
+    for s in probe:
+        x, y = rate(ke*a, me*b, s), rate(kp*c, mp*d, s)
+        winner = 'equal' if math.isclose(x, y, rel_tol=1e-12, abs_tol=0) else ('ethanol' if x > y else 'propanol')
+        scenarios.append(dict(ethanol_kcat_factor=a, ethanol_Km_factor=b, propanol_kcat_factor=c,
+            propanol_Km_factor=d, S_mM=s, ethanol_uM_s=x, propanol_uM_s=y, rate_ratio=x/y, winner=winner))
+pd.DataFrame(scenarios).to_csv(output_dir / 'sensitivity.csv', index=False)
+sensitivity = []
+for s in probe:
+    rows = [r for r in scenarios if r['S_mM'] == s]
+    sensitivity.append(dict(S_mM=s, scenarios=len(rows), ethanol_faster=sum(r['winner']=='ethanol' for r in rows),
+        propanol_faster=sum(r['winner']=='propanol' for r in rows), equal=sum(r['winner']=='equal' for r in rows),
+        min_ratio=min(r['rate_ratio'] for r in rows), max_ratio=max(r['rate_ratio'] for r in rows)))
+
+fig, ax = plt.subplots(1, 3, figsize=(16, 4.8))
+colors = ['#2878b5', '#d97720']
+for values, name, color in zip([ve, vp], names, colors):
+    ax[0].semilogx(grid, values, label=name, color=color, linewidth=2)
+ax[0].set(xlabel='Substrate S (mM)', ylabel='Initial rate (uM/s)', title='Model-based prediction: E = 0.1 uM')
+ax[0].legend(); ax[0].grid(alpha=0.25)
+eff = [ke/me, kp/mp]
+ax[1].bar(names, eff, color=colors)
+ax[1].set(ylabel='kcat/Km (mM$^{-1}$ s$^{-1}$)', title='Model-based catalytic efficiency', ylim=(0, max(eff)*1.2))
+for i, value in enumerate(eff):
+    ax[1].text(i, value, f'{value:.3f}', ha='center', va='bottom')
+x = np.arange(4)
+ec, pc, eq = [[r[k] for r in sensitivity] for k in ['ethanol_faster', 'propanol_faster', 'equal']]
+ax[2].bar(x, ec, color=colors[0], label='Ethanol faster')
+ax[2].bar(x, pc, bottom=ec, color=colors[1], label='1-Propanol faster')
+ax[2].bar(x, eq, bottom=np.array(ec)+np.array(pc), color='gray', label='Equal')
+ax[2].set(xticks=x, xticklabels=[f'{s:g}' for s in probe], xlabel='Substrate S (mM)',
+    ylabel='Scenario count (total 81)', title='Sensitivity scenarios: factors 0.5 / 1 / 2', ylim=(0, 105))
+ax[2].legend(fontsize=8, loc='upper right')
+fig.tight_layout(); fig.savefig(output_dir / 'analysis.png', dpi=150); plt.close(fig)
+
+summary = dict(enzyme='ADH1 / P00330', sources=data, active_site_concentration_uM=0.1,
+    comparison=comparison, specified_rates=rates, crossing=crossing, sensitivity=sensitivity,
+    assumptions=['Saturating NAD+, fixed conditions, initial rates without product accumulation.',
+        'Independently predicted kcat and Km need not describe matched assay conditions.',
+        'Sensitivity scenarios are not probabilities or confidence intervals.',
+        'Km is not interpreted as binding affinity; no experimental validation.'])
+(output_dir / 'summary.json').write_text(json.dumps(summary, ensure_ascii=False, allow_nan=False, indent=2))
+expected = {'substrates.png', 'analysis.png', 'comparison.csv', 'rates.csv', 'sensitivity.csv', 'summary.json'}
+assert {p.name for p in output_dir.iterdir()} == expected
+result = dict(efficiency_mM_inv_s_inv=eff, specified_rates=rates, crossing=crossing,
+              sensitivity=sensitivity, rows=dict(comparison=2, rates=401, sensitivity=324))
+```

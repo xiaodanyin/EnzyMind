@@ -7,6 +7,7 @@ import csv
 import pickle
 import random
 import subprocess
+import sys
 from typing import Dict, Tuple, List, Optional
 
 import numpy as np
@@ -234,26 +235,28 @@ def write_max_sep_choices(
     Returns:
         预测的EC号字符串
     """
-    ec = []
+    gmm_lst = pickle.load(open(gmm, 'rb')) if gmm is not None else None
+    best_ec_predictions = []
     for col in df.columns:
         smallest_10_dist_df = df[col].nsmallest(10)
         dist_lst = list(smallest_10_dist_df)
         max_sep_i = maximum_separation(dist_lst, first_grad, use_max_grad)
+        candidates = []
         for i in range(max_sep_i + 1):
             EC_i = smallest_10_dist_df.index[i]
-            dist_i = smallest_10_dist_df.iloc[i]
-            if gmm is not None:
-                gmm_lst = pickle.load(open(gmm, 'rb'))
-                dist_i = infer_confidence_gmm(dist_i, gmm_lst)
-            dist_str = "{:.4f}".format(dist_i)
-            ec.append('EC:' + str(EC_i))
-        ec.insert(0, col)
-    
-    if len(ec) > 2:
-        ec_numbers = ', '.join(ec[1:])
-        return f"{ec_numbers}."
-    else:
-        return f"{ec[1]}."
+            dist_i = float(smallest_10_dist_df.iloc[i])
+            score = infer_confidence_gmm(dist_i, gmm_lst) if gmm_lst is not None else -dist_i
+            candidates.append((score, EC_i))
+
+        if not candidates:
+            fallback_ec = smallest_10_dist_df.index[0]
+            best_ec_predictions.append('EC:' + str(fallback_ec))
+            continue
+
+        _, best_ec = max(candidates, key=lambda item: item[0])
+        best_ec_predictions.append('EC:' + str(best_ec))
+
+    return f"{', '.join(best_ec_predictions)}"
 
 
 class ECnumberPredictor:
@@ -406,10 +409,10 @@ class ECnumberPredictor:
         fasta_path = os.path.join(self.input_dir, fasta_name + ".fasta")
         esm_type = "esm1b_t33_650M_UR50S"
         command = [
-            "python", self.esm_script, esm_type,
+            sys.executable, self.esm_script, esm_type,
             fasta_path, self.esm_data_dir, "--include", "mean"
         ]
-        subprocess.run(command)
+        subprocess.run(command, check=True)
     
     def infer_maxsep(self, fasta_file: str) -> str:
         """

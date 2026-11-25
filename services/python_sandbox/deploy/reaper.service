@@ -1,0 +1,11 @@
+[Unit]
+Description=Remove expired EnzyMind Python containers and tmpfs volumes
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/enzymind-sandbox
+EnvironmentFile=%h/.config/enzymind-python/runner.env
+ExecStart=%h/enzymind-sandbox/.venv/bin/python -m services.python_sandbox.reaper
+UMask=0077
+NoNewPrivileges=true

@@ -1,5 +1,12 @@
 """Functional Site Query Module."""
 import requests
+import sys
+from pathlib import Path
+
+root = str(Path(__file__).resolve().parents[3])
+if root not in sys.path:
+    sys.path.insert(0, root)
+from shared.uniprot import uniprot_json_client, UniProtDownloadError
 from typing import Dict, Any, List
 
 class FunctionalSiteQuery:
@@ -8,15 +15,8 @@ class FunctionalSiteQuery:
         self.timeout = timeout
     
     def get_sites(self, uniprot_id: str) -> Dict[str, Any]:
-        url = f"{self.base_url}/{uniprot_id}.json"
         try:
-            response = requests.get(url, timeout=self.timeout)
-            if response.status_code == 404:
-                return {"success": False, "error": f"UniProt ID '{uniprot_id}' not found", "sites": []}
-            if response.status_code != 200:
-                return {"success": False, "error": f"HTTP {response.status_code}", "sites": []}
-            
-            data = response.json()
+            data = uniprot_json_client.fetch_json(uniprot_id, capability='functional_sites')
             sites = []
             for f in data.get("features", []):
                 if f.get("type") in ["Binding site", "Active site"]:
@@ -28,7 +28,9 @@ class FunctionalSiteQuery:
                         "description": f.get("description", "")
                     })
             
-            return {"success": True, "uniprot_id": uniprot_id, "sites": sites, "count": len(sites), "error": None}
+            return {"success": True, "source": data.get("enzymindSource"), "uniprot_id": uniprot_id, "sites": sites, "count": len(sites), "error": None}
+        except UniProtDownloadError as exc:
+            return {"success": False, "error": str(exc), "sites": []}
         except requests.exceptions.Timeout:
             return {"success": False, "error": "Request timeout", "sites": []}
         except requests.exceptions.RequestException as e:

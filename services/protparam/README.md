@@ -1,53 +1,55 @@
-# ProtParam - Protein Physicochemical Property Analysis Service
+# Protein Physicochemical Properties Service
 
-A protein physicochemical property analysis microservice based on ExPASy ProtParam.
+Protein property calculations using ExPASy ProtParam, with a local Biopython fallback when the remote service is unavailable or incomplete.
 
 ## Features
 
-- 🧬 **Protein Physicochemical Property Analysis**: Calculate various physicochemical parameters of proteins
-- 📊 **Multi-Parameter Output**: Molecular weight, isoelectric point, instability coefficient, GRAVY, etc.
-- 🔀 **Multiple Input Format Support**: Support amino acid sequences, UniProt IDs, FASTA format
-- 📁 **Multiple Interface Forms**: Support JSON, forms, file uploads and other calling methods
-- 🎯 **Structured Data**: Provide raw text, Markdown and parsed parameter values simultaneously
+- **Protein properties:** calculate sequence-derived physicochemical parameters
+- **Multiple outputs:** molecular weight, theoretical pI, instability index and GRAVY
+- **Protein inputs:** amino acid sequence, UniProt accession or FASTA
+- **Request formats:** JSON, form fields or file upload
+- **Structured results:** original text, Markdown and parsed parameter values
 
-## Analysis Parameters
+## Calculated parameters
 
-The service returns the following physicochemical property parameters:
+The service returns these physicochemical properties:
 
 | Parameter | Description |
 |------|------|
-| Number of amino acids | Number of amino acids |
+| Number of amino acids | Residue count |
 | Molecular weight | Molecular weight (Da) |
 | Theoretical pI | Theoretical isoelectric point |
-| Instability index | Instability coefficient |
-| Grand average of hydropathicity (GRAVY) | Average hydropathicity |
+| Instability index | Sequence-derived instability index |
+| Grand average of hydropathicity (GRAVY) | Mean residue hydropathicity |
 
-## Quick Start
+## Quick start
 
-### Install Dependencies
+### Install dependencies
 
 ```bash
 cd services/protparam
 pip install -r requirements.txt
 ```
 
-### Start Service
+### Start the service
 
 ```bash
 python main.py
 ```
 
-The service will start at `http://0.0.0.0:18909`.
+The service listens on `http://0.0.0.0:18909`.
 
-## API Endpoints
+## API endpoints
 
-### Health Check
+The direct service response below exposes `parameters` at the top level. Gateway calls to `/api/query/protein-physchem` or `/api/query/protein-params` use the compatibility response: read `data.parameters`, with the readable report in `result`.
+
+### Health check
 
 ```http
 GET /health
 ```
 
-**Response Example:**
+**Example response:**
 ```json
 {
   "status": "healthy",
@@ -55,42 +57,42 @@ GET /health
 }
 ```
 
-### Protein Physicochemical Property Analysis (JSON)
+### Protein property analysis (JSON)
 
 ```http
 POST /api/query/protein-physchem
 Content-Type: application/json
 ```
 
-**Request Parameters:**
+**Request parameters:**
 | Parameter | Type | Required | Description |
 |------|------|------|------|
-| query | string | Yes | Protein sequence, UniProt ID or FASTA format |
+| query | string | Yes | Protein sequence, UniProt accession or FASTA |
 
-**Request Example:**
+**Example requests:**
 
-Using amino acid sequence:
+Amino acid sequence:
 ```bash
 curl -X POST "http://localhost:18909/api/query/protein-physchem" \
      -H "Content-Type: application/json" \
      -d '{"query": "MKFLILLFNILCLFPVLAADNHGVGPQGASGVDPITFDINSNQTGVQLTLPLNNLGYTISSWFAGVTGSWIAALWQ"}'
 ```
 
-Using UniProt ID:
+UniProt accession:
 ```bash
 curl -X POST "http://localhost:18909/api/query/protein-physchem" \
      -H "Content-Type: application/json" \
      -d '{"query": "P12345"}'
 ```
 
-Using FASTA format:
+FASTA:
 ```bash
 curl -X POST "http://localhost:18909/api/query/protein-physchem" \
      -H "Content-Type: application/json" \
      -d '{"query": ">sp|P12345|Example\nMKFLILLFNILCLFPVLAADNHGVGPQ"}'
 ```
 
-**Response Example:**
+**Example response (illustrative values):**
 ```json
 {
   "success": true,
@@ -107,45 +109,45 @@ curl -X POST "http://localhost:18909/api/query/protein-physchem" \
 }
 ```
 
-### Protein Physicochemical Property Analysis (Form)
+### Protein property analysis (form)
 
 ```http
 POST /api/query/protein-physchem/form
 Content-Type: application/x-www-form-urlencoded
 ```
 
-**Request Example:**
+**Example request:**
 ```bash
 curl -X POST "http://localhost:18909/api/query/protein-physchem/form" \
      -d "query=MKFLILLFNILCLFPVLAADNHGVGPQ"
 ```
 
-### Protein Physicochemical Property Analysis (File Upload)
+### Protein property analysis (file upload)
 
 ```http
 POST /api/query/protein-physchem/file
 Content-Type: multipart/form-data
 ```
 
-**Request Example:**
+**Example request:**
 ```bash
 curl -X POST "http://localhost:18909/api/query/protein-physchem/file" \
      -F "file=@protein.fasta"
 ```
 
-### Legacy Compatible Endpoint
+### Legacy endpoint
 
 ```http
 POST /query/protein-physchem
 ```
 
-Maintains compatibility with previous versions. Parameters are the same as the JSON endpoint.
+Retains compatibility with older clients and uses the same parameters as the JSON endpoint.
 
-## Input Format Support
+## Supported input formats
 
-### 1. Amino Acid Sequence
+### 1. Amino acid sequence
 
-Enter amino acid sequence string directly:
+Supply an amino acid sequence directly:
 
 ```
 MKFLILLFNILCLFPVLAADNHGVGPQGASGVDPITFDINSNQTGVQLTLPLNNLGYTISSWFAGVTGSWIAALWQ
@@ -153,16 +155,16 @@ MKFLILLFNILCLFPVLAADNHGVGPQGASGVDPITFDINSNQTGVQLTLPLNNLGYTISSWFAGVTGSWIAALWQ
 
 ### 2. UniProt ID
 
-Enter standard UniProt ID:
+Supply a standard UniProt accession:
 
 ```
 P12345
 Q9Y6K9
 ```
 
-The service will automatically fetch the corresponding protein sequence from UniProt API.
+The shared UniProt client resolves the sequence locally first, with official API fallback.
 
-### 3. FASTA Format
+### 3. FASTA
 
 Standard FASTA format:
 
@@ -174,75 +176,89 @@ SWFAGVTGSWIAALWQ
 
 ## Configuration
 
-The service uses the following default configuration:
+Default settings:
 
-| Parameter | Default Value | Description |
+| Parameter | Default | Description |
 |------|--------|------|
-| HOST | 0.0.0.0 | Listen address |
+| HOST | 0.0.0.0 | Bind address |
 | PORT | 18909 | Service port |
 
 ## Dependencies
 
-- **fastapi**: Web framework
-- **uvicorn**: ASGI server
-- **requests**: HTTP client
-- **beautifulsoup4**: HTML parsing
-- **pydantic**: Data validation
-- **python-multipart**: File upload support
+- **fastapi:** web framework
+- **uvicorn:** ASGI server
+- **requests:** HTTP client
+- **beautifulsoup4:** HTML parsing
+- **pydantic:** data validation
+- **python-multipart:** file uploads
 
-## Testing
+## Tests
 
 ```bash
 cd services/protparam
 pytest tests/ -v
 ```
 
-## Project Structure
+## Project layout
 
 ```
 protparam/
-├── main.py                  # FastAPI application entry point
+├── main.py                  # FastAPI application
 ├── requirements.txt         # Dependencies
-├── README.md               # This file
+├── README.md                # This document
 ├── models/
 │   ├── __init__.py
-│   └── protparam_analyzer.py  # ProtParam analyzer
+│   └── protparam_analyzer.py # ProtParam analysis
 └── tests/
     ├── __init__.py
     └── test_api.py          # API tests
 ```
 
-## Error Handling
+## Error handling
 
-The service returns error responses in a unified format when an error is encountered:
+Analysis failures use the following response shape; request validation can also return a 4xx status:
 
 ```json
 {
   "success": false,
-  "error": "Error description message"
+  "error": "Description of the analysis failure"
 }
 ```
 
-Common errors:
-- `Empty sequence provided`: Empty sequence input
-- `No valid amino acids found`: Invalid sequence format
-- `Failed to fetch sequence from UniProt`: Unable to fetch sequence from UniProt
-- `Failed to get response from ExPASy`: ExPASy service request failed
+Typical failure causes:
+- Empty sequence input
+- Invalid residues or multiple FASTA records
+- UniProt lookup failure when no usable local sequence exists
+- ExPASy unavailability triggers local calculation; the result identifies its source and fallback reason
 
-## Technical Principle
+## Analysis workflow
 
-This service analyzes proteins through the following steps:
+The analysis follows these steps:
 
-1. **Input Parsing**: Automatically identify input type (sequence/UniProt ID/FASTA)
-2. **Sequence Retrieval**: If UniProt ID, fetch sequence from UniProt API
-3. **Sequence Cleaning**: Remove non-amino acid characters
-4. **ExPASy Request**: Submit sequence to ExPASy ProtParam service
-5. **Result Parsing**: Extract physicochemical property parameters from HTML response
-6. **Format Conversion**: Convert to Markdown and structured JSON format
+1. **Parse input:** detect a sequence, UniProt accession or FASTA record.
+2. **Resolve sequence:** retrieve accession inputs through the shared local-first UniProt client.
+3. **Validate sequence:** normalize case and whitespace; reject invalid residues instead of silently deleting them. Select one FASTA record rather than concatenating proteins.
+4. **Calculate properties:** submit to ExPASy ProtParam, with Biopython fallback for unavailable or incomplete responses.
+5. **Parse results:** extract the calculated properties and identify their source.
+6. **Format output:** return Markdown and structured JSON.
 
-## Copyright Notice
+## Attribution
 
-This service uses ExPASy ProtParam service for protein analysis.
+This service uses ExPASy ProtParam and Biopython for sequence-derived calculations. These values are not experimental measurements.
 
 - ExPASy: https://www.expasy.org/
 - ProtParam: https://web.expasy.org/protparam/
+
+UniProt accession inputs use `shared/uniprot.py`: verified HTTPS with a scoped
+TLS 1.2 adapter, bounded retries (60 seconds), validated FASTA and a 6-hour,
+128-entry/4 MiB memory cache. Raw sequence and FASTA inputs retain their existing
+behavior. No TLS certificate verification is disabled.
+
+ExPASy requests have a 5-second connect / 20-second read timeout. On timeout,
+unusable HTML, or mismatched sequence length, core properties are calculated
+locally with Biopython 1.86 (average molecular mass, pI, instability index,
+Kyte–Doolittle GRAVY and residue composition). The `source`, `fallback_reason`
+and rendered report explicitly distinguish this result from ExPASy; reference
+tables can produce small numeric differences. Extra ExPASy-only report fields
+are not fabricated. Both structured and legacy endpoints preserve their usual
+fields and expose the provenance. Reference: https://biopython.org/docs/1.86/api/Bio.SeqUtils.ProtParam.html

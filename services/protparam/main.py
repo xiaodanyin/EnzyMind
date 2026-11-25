@@ -11,7 +11,9 @@ Port: 18909
 import logging
 from typing import Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, UploadFile, File, Form
+from starlette.concurrency import run_in_threadpool
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -66,6 +68,9 @@ class ProtParamResponse(BaseModel):
     markdown: Optional[str] = None
     raw_text: Optional[str] = None
     parameters: Optional[dict] = None
+    amino_acid_composition: Optional[list] = None
+    source: Optional[dict] = None
+    fallback_reason: Optional[str] = None
     error: Optional[str] = None
 
 
@@ -81,7 +86,7 @@ async def health_check():
 
 
 @app.post("/api/query/protein-physchem", response_model=ProtParamResponse)
-async def analyze_protein_physchem(request: ProtParamRequest):
+def analyze_protein_physchem(request: ProtParamRequest):
     """
     Analyze protein physicochemical properties.
     
@@ -101,29 +106,39 @@ async def analyze_protein_physchem(request: ProtParamRequest):
     return ProtParamResponse(**result)
 
 
-@app.post("/query/protein-physchem")
-async def analyze_protein_legacy(request: ProtParamRequest):
-    """
-    Legacy endpoint for backward compatibility (JSON格式).
-    """
+@app.post("/api/query/protein-physchem/form", response_model=ProtParamResponse)
+def analyze_protein_form(query: str = Form("")):
+    return analyze_protein_physchem(ProtParamRequest(query=query))
+
+
+@app.post("/api/query/protein-physchem/file", response_model=ProtParamResponse)
+async def analyze_protein_file(file: UploadFile = File(...)):
+    content = await file.read(1_048_577)
+    if len(content) > 1_048_576:
+        return ProtParamResponse(success=False, error="Choose a FASTA text file smaller than 1 MB.")
     try:
-        if not request.query or not request.query.strip():
-            return {"result": "❌ Please enter a valid protein sequence, UniProt ID, or FASTA content."}
-        
-        protein = request.query.strip()
+        query = content.decode("utf-8")
+    except UnicodeDecodeError:
+        return ProtParamResponse(success=False, error="Upload a UTF-8 FASTA text file.")
+    return await run_in_threadpool(analyze_protein_physchem, ProtParamRequest(query=query))
 
-        try:
-            sequence = classify_input_v2(protein)
-        except Exception:
-            return {"result": "❌ Please enter a valid protein sequence, UniProt ID, or FASTA content."}
 
-        result = analyzer.analyze(sequence)
-        
+@app.post("/query/protein-physchem")
+async def analyze_protein_legacy(request: Request):
+    """Preserve both JSON and historical form clients, including the result field."""
+    try:
+        body = await request.json() if 'application/json' in request.headers.get('content-type', '') else dict(await request.form())
+        query = body.get('query', '') if isinstance(body, dict) else ''
+        if not isinstance(query, str) or not query.strip():
+            message = "Enter a protein sequence, UniProt accession, or FASTA record."
+            return JSONResponse({"success": False, "error_code": "invalid_input", "error": message,
+                                 "result": "[ERROR] " + message,
+                                 "detail": [{"loc": ["body", "query"], "msg": message, "type": "missing"}]},
+                                status_code=422)
+        result = await run_in_threadpool(analyzer.analyze_from_input, query)
         if result["success"]:
-            return {"result": result["markdown"]}
-        else:
-            return {"result": f"[ERROR] {result['error']}"}
-
+            return {"result": result["markdown"], "data": {k: v for k, v in result.items() if k != "markdown"}}
+        return {"result": f"[ERROR] {result['error']}"}
     except Exception as e:
         return {"result": f"[ERROR] Failed to compute parameters: {str(e)}"}
 

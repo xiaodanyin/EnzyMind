@@ -1,5 +1,5 @@
 <template>
-  <div class="page-container">
+  <div class="page-container container">
     <div class="page-header">
       <div class="header-decoration">
         <div class="deco-line"></div>
@@ -8,14 +8,17 @@
       </div>
       <h1 class="page-title">{{ title }}</h1>
       <p class="page-description" v-if="description">{{ description }}</p>
+      <GuideButton class="page-guide-inline" />
     </div>
-    <div class="page-content">
+    <slot name="overview"></slot>
+    <div class="page-content" :class="{ 'allow-overflow': allowOverflow }">
       <slot></slot>
     </div>
   </div>
 </template>
 
 <script setup>
+import GuideButton from '@/components/common/GuideButton.vue';
 defineProps({
   title: {
     type: String,
@@ -24,15 +27,18 @@ defineProps({
   description: {
     type: String,
     default: ''
+  },
+  allowOverflow: {
+    type: Boolean,
+    default: false
   }
 })
 </script>
 
 <style lang="scss" scoped>
+.page-guide-inline { margin-top: 14px; }
 .page-container {
-  max-width: var(--container-max-width);
-  margin: 0 auto;
-  padding: var(--spacing-xl) var(--spacing-lg);
+  padding-block: var(--spacing-xl);
   animation: fadeInUp 0.6s ease-out;
 }
 
@@ -139,9 +145,15 @@ defineProps({
   }
 }
 
+.page-content.allow-overflow {
+  overflow: visible;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
 @media (max-width: 768px) {
   .page-container {
-    padding: var(--spacing-lg) var(--spacing-md);
+    padding-block: var(--spacing-lg);
   }
   
   .page-title {

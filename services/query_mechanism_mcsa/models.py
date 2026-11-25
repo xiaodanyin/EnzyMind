@@ -56,6 +56,9 @@ class Enzyme(Base):
     reaction: Mapped[Optional["Reaction"]] = relationship(
         "Reaction", back_populates="enzyme", uselist=False, cascade="all, delete-orphan"
     )
+    cofactors: Mapped[List["Cofactor"]] = relationship(
+        "Cofactor", back_populates="enzyme", cascade="all, delete-orphan"
+    )
 
 
 class Identifier(Base):
@@ -83,6 +86,7 @@ class ProteinSequence(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     mcsa_id: Mapped[int] = mapped_column(Integer, ForeignKey("enzyme.mcsa_id"), nullable=False)
     uniprot_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    sequence: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Protein sequence from UniProt
     
     # Relationship
     enzyme: Mapped["Enzyme"] = relationship("Enzyme", back_populates="sequences")
@@ -182,6 +186,11 @@ class Reaction(Base):
     ec: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     is_polymeric: Mapped[bool] = mapped_column(Boolean, default=False)
     
+    # Atom mapping fields
+    reaction_smiles: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # reactants>>products
+    mapped_rxn: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Atom-mapped reaction SMILES
+    mapping_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # Mapping confidence score
+    
     # Relationships
     enzyme: Mapped["Enzyme"] = relationship("Enzyme", back_populates="reaction")
     compounds: Mapped[List["ReactionCompound"]] = relationship(
@@ -205,6 +214,7 @@ class ReactionCompound(Base):
     count: Mapped[int] = mapped_column(Integer, default=1)
     chebi_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     mol_file: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    smiles: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # SMILES from ChEBI
     
     # Relationship
     reaction: Mapped["Reaction"] = relationship("Reaction", back_populates="compounds")
@@ -267,3 +277,85 @@ class MechanismReference(Base):
     
     # Relationship
     mechanism: Mapped["Mechanism"] = relationship("Mechanism", back_populates="references")
+
+
+class Cofactor(Base):
+    """
+    Stores cofactor information for enzymes.
+    Cofactors are non-protein molecules that assist in enzyme catalysis.
+    Data source: curated_data.csv (entries with residue/reactant/product/cofactor == 'cofactor')
+    """
+    __tablename__ = "cofactor"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    mcsa_id: Mapped[int] = mapped_column(Integer, ForeignKey("enzyme.mcsa_id"), nullable=False)
+    uniprot_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    pdb_id: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    ec: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    pdb_code: Mapped[str] = mapped_column(String(20), nullable=False)  # Cofactor abbreviation (e.g., FAD, NAD, CU)
+    kegg_compound: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # KEGG compound ID
+    chebi_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # ChEBI ID
+    name: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # Cofactor full name
+    smiles: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # SMILES from ChEBI
+    
+    # Relationships
+    enzyme: Mapped["Enzyme"] = relationship("Enzyme", back_populates="cofactors")
+    roles: Mapped[List["CofactorRole"]] = relationship(
+        "CofactorRole", back_populates="cofactor", cascade="all, delete-orphan"
+    )
+
+
+class CofactorRole(Base):
+    """
+    Stores the functional roles of each cofactor in the catalytic mechanism.
+    """
+    __tablename__ = "cofactor_role"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    cofactor_id: Mapped[int] = mapped_column(Integer, ForeignKey("cofactor.id"), nullable=False)
+    role: Mapped[str] = mapped_column(String(200), nullable=False)  # e.g., 'hydride acceptor', 'proton donor'
+    role_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # e.g., 'reactant', 'spectator', 'interaction'
+    role_group: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)  # e.g., 'hydride shuttle', 'proton shuttle'
+    
+    # Relationship
+    cofactor: Mapped["Cofactor"] = relationship("Cofactor", back_populates="roles")
+
+
+class MechanismParsedStep(Base):
+    """
+    Stores parsed mechanism steps with CXSMILES and electron flow information.
+    This table contains detailed catalytic attack information extracted from MRV files.
+    """
+    __tablename__ = "mechanism_parsed_step"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    
+    # Link to original data
+    mechanism_step_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    mcsa_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    mechanism_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    original_step_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    
+    # Step information
+    step_index: Mapped[int] = mapped_column(Integer, nullable=False)  # 0=reactants, 1=step1, etc.
+    cxsmiles: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Can be None for error records
+    role: Mapped[str] = mapped_column(String(50), nullable=False)  # 'reactant', 'intermediate', 'product'
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    # File path
+    mrv_file_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    
+    # Electron flow information (stored as JSON)
+    electron_flows: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array of electron flow data
+    involved_residues: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array of residue names
+    
+    # Alignment quality
+    alignment_match_rate: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    alignment_warnings: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    # Processing status
+    processing_status: Mapped[str] = mapped_column(String(50), nullable=False, default="success")  # 'success', 'warning', 'error'
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    # Atom mapping status
+    mechanism_atoms_fully_mapped: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)

@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Enzymind 服务停止脚本
+# EnzyMind 服务停止脚本
 #
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -37,50 +37,30 @@ declare -A SERVICES=(
 
 stop_service() {
     local service=$1
-    local pid_file="$PIDS_DIR/${service}.pid"
-    
-    if [ ! -f "$pid_file" ]; then
-        echo -e "  ${YELLOW}⚠${NC} $service: 无 PID 文件"
-        return 1
-    fi
-    
-    local pid=$(cat "$pid_file")
-    
-    if kill -0 $pid 2>/dev/null; then
-        kill $pid 2>/dev/null
-        sleep 1
-        if kill -0 $pid 2>/dev/null; then
-            kill -9 $pid 2>/dev/null
-        fi
-        rm -f "$pid_file"
-        echo -e "  ${GREEN}✓${NC} $service (PID $pid) 已停止"
-        return 0
-    else
-        rm -f "$pid_file"
-        echo -e "  ${YELLOW}⚠${NC} $service: 进程已不存在"
-        return 1
-    fi
+    python3 "$SCRIPT_DIR/service_process.py" stop "$service" "$PROJECT_DIR/services/$service" "${SERVICES[$service]}" "$PIDS_DIR/${service}.pid"
 }
 
 echo -e "${BLUE}╔═══════════════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║           Enzymind 微服务停止脚本                          ║${NC}"
+echo -e "${BLUE}║           EnzyMind 微服务停止脚本                          ║${NC}"
 echo -e "${BLUE}╚═══════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
-if [ -n "$1" ]; then
+failed=0
+if [ -n "${1:-}" ]; then
     if [ -z "${SERVICES[$1]}" ]; then
         echo -e "${RED}错误: 未知服务 '$1'${NC}"
         exit 1
     fi
     echo -e "${YELLOW}停止服务: $1${NC}"
-    stop_service "$1"
+    stop_service "$1" || failed=1
 else
     echo -e "${YELLOW}停止所有服务...${NC}"
     echo ""
     for service in "${!SERVICES[@]}"; do
-        stop_service "$service"
+        stop_service "$service" || failed=1
     done
 fi
 
 echo ""
-echo -e "${GREEN}完成${NC}"
+[ "$failed" -ne 0 ] || echo -e "${GREEN}完成${NC}"
+exit "$failed"

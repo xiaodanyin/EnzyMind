@@ -8,16 +8,21 @@ running in a Docker container.
 
 import os
 import re
-import glob
+import math
 import shutil
 import logging
 import subprocess
-import requests
-import tempfile
-import time
+import sys
+import threading
+from uuid import uuid4
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any, List
 from timeit import default_timer as timer
+
+root = str(Path(__file__).resolve().parents[3])
+if root not in sys.path:
+    sys.path.insert(0, root)
+from shared.uniprot import ACCESSION, UniProtDownloadError, uniprot_sequence_client
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -40,14 +45,9 @@ def classify_input_v2(raw: str) -> str:
     raw = raw.strip()
 
     # Check if UniProt ID
-    if re.match(r"^[OPQ][0-9][A-Z0-9]{3}[0-9]$", raw) or re.match(r"^[A-NR-Z][0-9][A-Z0-9]{3}[0-9]$", raw):
+    if re.fullmatch(r"(?:[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9](?:[A-Z][A-Z0-9]{2}[0-9]){1,2})(?:-[1-9][0-9]*)?", raw, re.I):
         logger.info("[DEBUG] Detected UniProt ID")
-        url = f"https://rest.uniprot.org/uniprotkb/{raw}.fasta"
-        response = requests.get(url, timeout=30)
-        if response.status_code != 200:
-            raise ValueError("Failed to fetch sequence from UniProt.")
-        fasta_content = response.text
-        return _extract_sequence_from_fasta(fasta_content)
+        return uniprot_sequence_client.fetch(raw).sequence
 
     # Check if FASTA format
     if raw.startswith(">") or "\n>" in raw:
@@ -122,12 +122,15 @@ class DockerESMFoldRunner:
         self.use_gpu = use_gpu
         self.timeout = timeout
         self.log_dir = log_dir
+        self.cuda_cache_dir = os.getenv("ESMFOLD_CUDA_CACHE_DIR", str(
+            Path(__file__).resolve().parents[3] / "files" / "esmfold_cuda_cache"))
         
         self.logger = logging.getLogger("DockerESMFoldRunner")
         self.logger.setLevel(logging.INFO)
         
         # Ensure model cache directory exists
         os.makedirs(self.model_cache_dir, exist_ok=True)
+        os.makedirs(self.cuda_cache_dir, exist_ok=True)
         if self.log_dir:
             os.makedirs(self.log_dir, exist_ok=True)
     
@@ -135,7 +138,7 @@ class DockerESMFoldRunner:
         """Check if Docker is available."""
         try:
             result = subprocess.run(
-                ["docker", "--version"],
+                ["docker", "info", "--format", "{{.ServerVersion}}"],
                 capture_output=True,
                 text=True,
                 timeout=10
@@ -213,17 +216,27 @@ class DockerESMFoldRunner:
         self.logger.info(f"  Output dir: {output_dir}")
         
         # Build Docker command
-        cmd = ["docker", "run", "--rm"]
+        container_name = f"enzymind-esmfold-{uuid4().hex}"
+        cmd = ["docker", "run", "--rm", "--network", "none", "--name", container_name]
         
         # Add GPU support if enabled
         if self.use_gpu:
             cmd.extend(["--gpus", "all"])
         
+        else:
+            threads = int(os.getenv("ESMFOLD_CPU_THREADS", "6"))
+            memory = os.getenv("ESMFOLD_CPU_MEMORY", "28g")
+            cmd.extend(["--cpus", str(threads), "--memory", memory, "--memory-swap", memory,
+                        "-e", f"OMP_NUM_THREADS={threads}", "-e", f"MKL_NUM_THREADS={threads}"])
+
         # Mount volumes
         cmd.extend([
             "-v", f"{input_dir}:/home/vscode/input:ro",
             "-v", f"{output_dir}:/home/vscode/output",
-            "-v", f"{self.model_cache_dir}:/home/vscode/.cache/torch/hub/checkpoints"
+            "-v", f"{self.model_cache_dir}:/home/vscode/.cache/torch/hub/checkpoints:ro",
+            "-v", f"{self.cuda_cache_dir}:/home/vscode/.cache/cuda",
+            "-e", "CUDA_CACHE_PATH=/home/vscode/.cache/cuda",
+            "-e", "CUDA_CACHE_MAXSIZE=4294967296",
         ])
         
         # Add image and arguments
@@ -233,109 +246,43 @@ class DockerESMFoldRunner:
             "-o", "/home/vscode/output"
         ])
         
+        # The target host has no NVIDIA GPU; pass the ESMFold CPU option.
+        if not self.use_gpu:
+            cmd.extend(["--cpu-only", "--chunk-size", "32"])
+
         self.logger.info(f"Docker command: {' '.join(cmd)}")
         
         start = timer()
-        start_timestamp = time.time()  # Unix timestamp for file mtime comparison
-        
+        stdout_file = stderr_file = None
         try:
-            # Prepare log files if log_dir is specified
-            stdout_file = None
-            stderr_file = None
             if self.log_dir:
-                stdout_file = open(os.path.join(self.log_dir, f"{output_name}.log"), "w")
-                stderr_file = open(os.path.join(self.log_dir, f"{output_name}.err"), "w")
-            
-            # Run Docker command
-            result = subprocess.run(
-                cmd,
-                capture_output=True if not self.log_dir else False,
-                stdout=stdout_file if stdout_file else subprocess.PIPE,
-                stderr=stderr_file if stderr_file else subprocess.PIPE,
-                text=True,
-                timeout=self.timeout
-            )
-            
-            # Close log files
-            if stdout_file:
-                stdout_file.close()
-            if stderr_file:
-                stderr_file.close()
-            
+                stdout_file = open(Path(self.log_dir) / f"{output_name}.log", "w+")
+                stderr_file = open(Path(self.log_dir) / f"{output_name}.err", "w+")
+            result = subprocess.run(cmd, stdout=stdout_file or subprocess.PIPE,
+                                    stderr=stderr_file or subprocess.PIPE, text=True,
+                                    timeout=self.timeout)
             pred_time = timer() - start
-            
-            if result.returncode != 0:
-                error_msg = result.stderr if hasattr(result, 'stderr') and result.stderr else "Unknown error"
-                self.logger.error(f"Docker prediction failed: {error_msg}")
-                return {
-                    "success": False,
-                    "error": f"Docker prediction failed: {error_msg}",
-                    "prediction_time": pred_time
-                }
-            
-            # Find output PDB file
-            # ESMFold Docker outputs files with FASTA header as filename
-            # The expected output file should match the header in the FASTA file
-            
-            # First, read the FASTA header to get expected output filename
-            expected_pdb_name = None
-            try:
-                with open(input_fasta_path, 'r') as f:
-                    header_line = f.readline().strip()
-                    if header_line.startswith('>'):
-                        expected_pdb_name = header_line[1:].split()[0]  # Get first word after '>'
-            except Exception as e:
-                self.logger.warning(f"Could not read FASTA header: {e}")
-            
-            # Check for the expected output file from Docker
-            expected_docker_output = None
-            if expected_pdb_name:
-                expected_docker_output = os.path.join(output_dir, f"{expected_pdb_name}.pdb")
-                self.logger.info(f"Looking for expected Docker output: {expected_docker_output}")
-            
-            # Also check log file for errors (CUDA OOM, etc.)
-            if self.log_dir:
-                log_file = os.path.join(self.log_dir, f"{output_name}.log")
-                if os.path.exists(log_file):
-                    with open(log_file, 'r') as f:
-                        log_content = f.read()
-                        if "Failed" in log_content or "CUDA out of memory" in log_content or "Error" in log_content:
-                            # Extract error message from log
-                            error_lines = [line for line in log_content.split('\n') if 'Failed' in line or 'Error' in line]
-                            error_msg = error_lines[-1] if error_lines else "Prediction failed (see logs)"
-                            self.logger.error(f"Docker prediction failed: {error_msg}")
-                            return {
-                                "success": False,
-                                "error": error_msg,
-                                "prediction_time": pred_time
-                            }
-            
-            # Check if the expected Docker output file exists and was created after we started
-            pdb_path = None
-            if expected_docker_output and os.path.exists(expected_docker_output):
-                # Verify the file was created after we started the prediction
-                file_mtime = os.path.getmtime(expected_docker_output)
-                if file_mtime >= start_timestamp:
-                    pdb_path = expected_docker_output
-                    self.logger.info(f"Found expected Docker output: {expected_docker_output}")
-            
-            if not pdb_path:
-                # Fallback: look for any new PDB files created after we started
-                pdb_files = glob.glob(os.path.join(output_dir, "*.pdb"))
-                new_pdb_files = [f for f in pdb_files if os.path.getmtime(f) >= start_timestamp]
-                
-                if not new_pdb_files:
-                    self.logger.error("No new PDB file generated")
-                    return {
-                        "success": False,
-                        "error": "No PDB file generated by Docker container. The sequence may be too long for available GPU memory.",
-                        "prediction_time": pred_time
-                    }
-                
-                # Get the most recently modified PDB file among new files
-                pdb_path = max(new_pdb_files, key=os.path.getmtime)
-                self.logger.info(f"Found new PDB file: {pdb_path}")
-            
+            diagnostics = [result.stdout or "", result.stderr or ""]
+            for stream in (stdout_file, stderr_file):
+                if stream:
+                    # Capture the end of the job log even when the CLI wrote to disk.
+                    stream.seek(0, os.SEEK_END)
+                    stream.seek(max(0, stream.tell() - 16384))
+                    diagnostics.append(stream.read())
+            diagnostic = "\n".join(diagnostics).lower()
+            if "out of memory" in diagnostic or result.returncode == 137:
+                return {"success": False, "error_code": "structure_memory_exhausted",
+                        "error": "ESMFold exceeded available GPU or host memory.", "prediction_time": pred_time}
+            if result.returncode:
+                self.logger.error("ESMFold job %s exited with status %s", output_name, result.returncode)
+                return {"success": False, "error_code": "structure_worker_failed",
+                        "error": f"ESMFold worker exited with status {result.returncode}.", "prediction_time": pred_time}
+
+            # Each invocation owns its output directory and FASTA header.
+            pdb_path = os.path.join(output_dir, f"{output_name}.pdb")
+            if not os.path.isfile(pdb_path):
+                return {"success": False, "error_code": "structure_invalid_output",
+                        "error": "ESMFold completed without producing coordinates."}
             # Copy/rename to desired output name if different
             final_pdb_path = os.path.join(output_dir, f"{output_name}.pdb")
             if pdb_path != final_pdb_path:
@@ -351,9 +298,12 @@ class DockerESMFoldRunner:
             }
             
         except subprocess.TimeoutExpired:
+            # Killing docker's CLI alone leaves its GPU container running.
+            subprocess.run(["docker", "rm", "-f", container_name], capture_output=True, timeout=30)
             self.logger.error(f"Docker prediction timed out after {self.timeout}s")
             return {
                 "success": False,
+                "error_code": "structure_timeout",
                 "error": f"Prediction timed out after {self.timeout} seconds"
             }
         except Exception as e:
@@ -362,6 +312,10 @@ class DockerESMFoldRunner:
                 "success": False,
                 "error": str(e)
             }
+        finally:
+            for stream in (stdout_file, stderr_file):
+                if stream:
+                    stream.close()
 
 
 class StructurePredictor:
@@ -409,6 +363,7 @@ class StructurePredictor:
         self.use_gpu = use_gpu
         self.timeout = timeout
         self.log_dir = log_dir or self.DEFAULT_LOG_DIR
+        self._prediction_lock = threading.Lock()
         
         # Create directories
         os.makedirs(self.fasta_dir, exist_ok=True)
@@ -450,23 +405,28 @@ class StructurePredictor:
             Dictionary with prediction results
         """
         # Clean sequence
-        clean_seq = _clean_sequence(sequence)
+        clean_seq = "".join(sequence.split()).upper()
         
-        if not clean_seq:
+        if not re.fullmatch(r"[ACDEFGHIKLMNPQRSTVWYBXZUO]+", clean_seq):
             return {
                 "success": False,
-                "error": "Empty or invalid sequence"
+                "error_code": "invalid_input", "error": "Empty or invalid sequence"
             }
         
-        # Save as FASTA
+        if not self._prediction_lock.acquire(blocking=False):
+            return {"success": False, "error_code": "structure_busy", "error": "A structure prediction is already running. Wait for it to finish before submitting another."}
+        # Each output is immutable and isolated from other requests, even when
+        # users keep the default name. Never return another job's coordinates.
+        label = re.sub(r"[^A-Za-z0-9_-]", "_", output_name)[:64] or "query"
+        output_name = f"{label}_{uuid4().hex[:12]}"
         fasta_path = os.path.join(self.fasta_dir, f"{output_name}.fasta")
-        save_sequence_as_fasta(clean_seq, fasta_path, output_name)
         
         try:
+            save_sequence_as_fasta(clean_seq, fasta_path, output_name)
             # Run prediction via Docker
             result = self.runner.predict_structure(
                 input_fasta_path=fasta_path,
-                output_dir=self.output_dir,
+                output_dir=os.path.join(self.output_dir, output_name),
                 output_name=output_name
             )
             
@@ -475,6 +435,19 @@ class StructurePredictor:
             
             # Copy to static directory
             pdb_path = result["pdb_path"]
+            residues = set()
+            try:
+                with open(pdb_path, encoding="ascii") as coordinates:
+                    for line in coordinates:
+                        if line.startswith("ATOM  ") and line[12:16].strip() == "CA":
+                            if not all(math.isfinite(float(line[i:i+8])) for i in (30, 38, 46)):
+                                raise ValueError("Non-finite coordinates")
+                            residues.add(line[21:27])
+                if len(residues) != len(clean_seq):
+                    raise ValueError("Incomplete backbone")
+            except (OSError, ValueError):
+                return {"success": False, "error_code": "structure_invalid_output",
+                        "error": "The predicted backbone does not cover the submitted sequence."}
             static_pdb_path = os.path.join(self.static_pdb_dir, f"{output_name}.pdb")
             shutil.copy(pdb_path, static_pdb_path)
             
@@ -492,6 +465,8 @@ class StructurePredictor:
                 "success": False,
                 "error": str(e)
             }
+        finally:
+            self._prediction_lock.release()
     
     def predict_from_input(
         self,
@@ -511,25 +486,22 @@ class StructurePredictor:
             Dictionary with prediction results
         """
         try:
-            # Process input to get sequence
-            if input_type == "auto":
-                sequence = classify_input_v2(input_data)
-            elif input_type == "uniprot":
-                url = f"https://rest.uniprot.org/uniprotkb/{input_data.strip()}.fasta"
-                response = requests.get(url, timeout=30)
-                if response.status_code != 200:
-                    return {
-                        "success": False,
-                        "error": f"Failed to fetch sequence for UniProt ID: {input_data}"
-                    }
-                sequence = _extract_sequence_from_fasta(response.text)
-            elif input_type == "fasta":
-                sequence = _extract_sequence_from_fasta(input_data)
-            else:  # sequence
-                sequence = _clean_sequence(input_data)
-            
+            raw = input_data.strip()
+            if input_type == "uniprot" or (input_type == "auto" and re.fullmatch(ACCESSION, raw, re.I)):
+                sequence = uniprot_sequence_client.fetch(raw).sequence
+            elif input_type == "fasta" or (input_type == "auto" and raw.startswith(">")):
+                lines = raw.splitlines()
+                if not lines or not lines[0].startswith(">") or any(line.startswith(">") for line in lines[1:]):
+                    return {"success": False, "error_code": "invalid_input", "error": "Submit one FASTA record."}
+                sequence = "".join(lines[1:])
+            elif input_type in ("auto", "sequence"):
+                sequence = raw
+            else:
+                return {"success": False, "error_code": "invalid_input", "error": "Unknown protein input type."}
             return self.predict_from_sequence(sequence, output_name)
             
+        except UniProtDownloadError as exc:
+            return {"success": False, "error_code": exc.code, "error": str(exc)}
         except Exception as e:
             self.logger.error(f"Failed to process input: {e}")
             return {
@@ -554,8 +526,9 @@ class StructurePredictor:
         """
         try:
             fasta_content = file_content.decode("utf-8")
-            sequence = _extract_sequence_from_fasta(fasta_content)
-            return self.predict_from_sequence(sequence, output_name)
+            return self.predict_from_input(fasta_content, "auto", output_name)
+        except UnicodeDecodeError:
+            return {"success": False, "error_code": "invalid_input", "error": "Submit a UTF-8 FASTA file."}
         except Exception as e:
             self.logger.error(f"Failed to process file: {e}")
             return {
@@ -587,19 +560,23 @@ class StructurePredictor:
         if self.use_gpu:
             try:
                 result = subprocess.run(
-                    ["docker", "run", "--rm", "--gpus", "all", "nvidia/cuda:11.0-base", "nvidia-smi"],
+                    ["docker", "run", "--rm", "--gpus", "all", "--entrypoint", "nvidia-smi", self.docker_image, "-L"],
                     capture_output=True,
                     text=True,
                     timeout=30
                 )
                 gpu_available = result.returncode == 0
                 if not gpu_available:
-                    issues.append("GPU support not available in Docker. Will fall back to CPU.")
+                    issues.append("GPU access failed in the configured Docker image. Set ESMFOLD_USE_GPU=false to use CPU explicitly.")
             except Exception:
                 issues.append("Could not verify GPU support in Docker")
         
+        for filename in ("esmfold_3B_v1.pt", "esm2_t36_3B_UR50D.pt", "esm2_t36_3B_UR50D-contact-regression.pt"):
+            weight = Path(self.runner.model_cache_dir) / filename
+            if not weight.is_file() or not os.access(weight, os.R_OK):
+                issues.append(f"Missing or unreadable ESMFold checkpoint: {filename}")
         return {
-            "configured": docker_available and image_available,
+            "configured": not issues,
             "issues": issues,
             "output_dir": self.output_dir,
             "docker_image": self.docker_image,

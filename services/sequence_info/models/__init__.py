@@ -11,8 +11,11 @@ class SequenceInfoQuery(BaseModel):
 
 class SequenceInfoResponse(BaseModel):
     """Response model for sequence information"""
+    source: Optional[dict] = None
     length: Optional[int] = Field(None, description="Sequence length")
     molWeight: Optional[int] = Field(None, description="Molecular weight in Daltons")
+    molWeight_source: Optional[str] = None
+    molWeight_note: Optional[str] = None
     value: Optional[str] = Field(None, description="Amino acid sequence")
 
 

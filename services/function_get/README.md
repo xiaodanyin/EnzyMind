@@ -1,60 +1,60 @@
-# Function Get Service - Protein Function Query Microservice
+# Protein Function Query Service
 
 ## Overview
 
-Function Get Service is a microservice for querying protein function information, retrieving protein function descriptions, names, source organisms, and gene names from the UniProt database.
+This service retrieves protein function descriptions, names, organisms and gene names from UniProt.
 
 ## Port
 
-- **Service Port**: 18911
+- **Service port**: 18911
 
 ## Features
 
-- Single protein function query
-- Batch protein function query
-- Batch query by file upload
-- Support for both JSON and Form input formats
+- Single-protein function queries
+- Batch protein function queries
+- Batch queries from an uploaded file
+- JSON and form inputs
 - Automatic deduplication
-- Comprehensive error handling
+- Error handling
 
-## API Endpoints
+## API endpoints
 
 | Endpoint | Method | Description |
 |------|------|------|
 | `/health` | GET | Health check |
-| `/api/query/function` | POST | Function query in JSON format |
-| `/api/query/function/form` | POST | Function query in Form format |
-| `/api/query/function/batch` | POST | Batch function query |
-| `/api/query/function/file` | POST | Batch query by file upload |
-| `/query/function` | POST | Compatible with legacy API |
+| `/api/query/function` | POST | Function query (JSON) |
+| `/api/query/function/form` | POST | Function query (form) |
+| `/api/query/function/batch` | POST | Batch function queries |
+| `/api/query/function/file` | POST | Batch queries from an uploaded file |
+| `/query/function` | POST | Legacy API compatibility |
 
 ## Installation
 
-### 1. Create Virtual Environment
+### 1. Create a virtual environment
 
 ```bash
-cd /path/to/Enzymind/services/function_get
+cd /path/to/EnzyMind/services/function_get
 python3 -m venv venv
 source venv/bin/activate
 ```
 
-### 2. Install Dependencies
+### 2. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Start Service
+### 3. Start the service
 
 ```bash
 python main.py
 ```
 
-The service will start at http://localhost:18911.
+The service runs at http://localhost:18911.
 
-## Usage Examples
+## Examples
 
-### Health Check
+### Health check
 
 ```bash
 curl http://localhost:18911/health
@@ -69,7 +69,7 @@ Response:
 }
 ```
 
-### Query Protein Function (JSON Format)
+### Query protein function (JSON)
 
 ```bash
 curl -X POST http://localhost:18911/api/query/function \
@@ -90,14 +90,14 @@ Response:
 }
 ```
 
-### Query Protein Function (Form Format)
+### Query protein function (form)
 
 ```bash
 curl -X POST http://localhost:18911/api/query/function/form \
   -d "query=P12345"
 ```
 
-### Batch Query
+### Batch queries
 
 ```bash
 curl -X POST http://localhost:18911/api/query/function/batch \
@@ -133,12 +133,12 @@ Response:
 }
 ```
 
-### File Upload Query
+### Query using an uploaded file
 
-Prepare a text file `ids.txt` with one UniProt ID per line:
+Prepare an `ids.txt` file with one UniProt accession per line:
 
 ```text
-# This is a comment line, will be ignored
+# This comment line is ignored
 P12345
 Q9Y6K9
 P00533
@@ -149,26 +149,26 @@ curl -X POST http://localhost:18911/api/query/function/file \
   -F "file=@ids.txt"
 ```
 
-## API Documentation
+## API documentation
 
-After starting the service, you can access the interactive API documentation at the following addresses:
+After starting the service, open the interactive API documentation:
 
 - **Swagger UI**: http://localhost:18911/docs
 - **ReDoc**: http://localhost:18911/redoc
 
-## Return Field Description
+## Response fields
 
 | Field | Type | Description |
 |------|------|------|
-| `success` | boolean | Whether the query was successful |
-| `uniprot_id` | string | UniProt accession number |
+| `success` | boolean | Whether the query succeeded |
+| `uniprot_id` | string | UniProt accession |
 | `function` | string/null | Protein function description |
 | `protein_name` | string/null | Protein name |
-| `organism` | string/null | Source organism |
-| `gene_names` | array/null | List of gene names |
-| `error` | string/null | Error message (if failed) |
+| `organism` | string/null | Organism |
+| `gene_names` | array/null | Gene names |
+| `error` | string/null | Error message on failure |
 
-## Testing
+## Tests
 
 Run unit tests:
 
@@ -177,18 +177,18 @@ source venv/bin/activate
 pytest tests/ -v
 ```
 
-## Error Handling
+## Error handling
 
-The service handles the following error cases:
+The service handles these error cases:
 
 - **400 Bad Request**: Invalid input parameters
-- **UniProt ID does not exist**: Returns success=false with explanation
-- **Network timeout**: Returns success=false with timeout message
-- **Connection error**: Returns success=false with connection error message
+- **UniProt accession not found:** returns success=false with an explanation
+- **Network timeout:** returns success=false with timeout details
+- **Connection error:** returns success=false with connection failure details
 
-## Data Source
+## Data sources
 
-All protein function information is sourced from the [UniProt](https://www.uniprot.org/) database.
+Protein function annotations come from [UniProt](https://www.uniprot.org/), using the shared local-first resolver.
 
 ## License
 

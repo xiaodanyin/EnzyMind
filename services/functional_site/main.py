@@ -1,6 +1,7 @@
 """Functional Site Service - Port: 18916"""
 from fastapi import FastAPI, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 import uvicorn
@@ -14,6 +15,7 @@ class SiteRequest(BaseModel):
     query: str = Field(..., description="UniProt accession ID")
 
 class SiteResponse(BaseModel):
+    source: Optional[dict] = None
     success: bool
     uniprot_id: Optional[str] = None
     sites: List[Dict[str, Any]] = Field(default_factory=list)
@@ -34,14 +36,14 @@ async def health_check():
 async def query_features(request: SiteRequest):
     if not request.query or not request.query.strip():
         raise HTTPException(status_code=400, detail="UniProt ID is required")
-    result = query.get_sites(request.query.strip())
+    result = await run_in_threadpool(query.get_sites, request.query.strip())
     return SiteResponse(**result)
 
 @app.post("/api/query/features/form", response_model=SiteResponse)
 async def query_features_form(query_id: str = Form(..., alias="query")):
     if not query_id or not query_id.strip():
         raise HTTPException(status_code=400, detail="UniProt ID is required")
-    result = query.get_sites(query_id.strip())
+    result = await run_in_threadpool(query.get_sites, query_id.strip())
     return SiteResponse(**result)
 
 @app.post("/query/features", response_model=SiteResponse, tags=["Legacy"])

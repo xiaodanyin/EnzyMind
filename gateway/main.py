@@ -1,5 +1,5 @@
 """
-Enzymind Gateway - API Proxy Server
+EnzyMind Gateway - API Proxy Server
 Routes frontend requests to microservices
 Port: 8080
 
@@ -7,14 +7,27 @@ Supports both /api and /enzymind/api prefixes for compatibility
 """
 
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
 import os
+import json
+import time
+from pathlib import Path
+
+# Support both `uvicorn gateway.main:app` and the existing `cd gateway; uvicorn main:app`.
+if not __package__:
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from gateway import workspace, structure_jobs
+from gateway.result_catalog import tool_for_service
+from gateway.service_policy import service_timeout
+from gateway.structure_artifacts import read_generated_pdb, valid_pdb_name
+from gateway.sequence_data import normalize_active_site_payload
 
 app = FastAPI(
-    title="Enzymind API Gateway",
-    description="API Gateway for Enzymind Microservices",
+    title="EnzyMind API Gateway",
+    description="API Gateway for EnzyMind Microservices",
     version="2.0.0",
     root_path="/enzymind"  # Support reverse proxy with /enzymind prefix
 )
@@ -30,12 +43,6 @@ app.add_middleware(
 
 # Service configuration
 SERVICE_HOST = os.getenv("ENZYMIND_HOST", "localhost")
-
-# n8n webhook configuration
-N8N_HOST = os.getenv("N8N_HOST", "localhost")
-N8N_PORT = os.getenv("N8N_PORT", "5678")
-N8N_WEBHOOK_ID = os.getenv("N8N_WEBHOOK_ID", "8e6add2a-15cd-4a13-be8f-937593f5680a")
-N8N_WEBHOOK_URL = f"http://{N8N_HOST}:{N8N_PORT}/webhook/{N8N_WEBHOOK_ID}"
 
 SERVICES = {
     "enzy_recognize": f"http://{SERVICE_HOST}:18901",
@@ -56,10 +63,13 @@ SERVICES = {
     "functional_site": f"http://{SERVICE_HOST}:18916",
     "kinetic_params": f"http://{SERVICE_HOST}:18917",
     "sequence_info": f"http://{SERVICE_HOST}:18918",
+    "query_mechanism_mcsa": f"http://{SERVICE_HOST}:18919",
 }
 
+workspace.install(app, SERVICES)
 
-async def proxy_request(service_name: str, path: str, request: Request):
+
+async def proxy_request(service_name: str, path: str, request: Request, *, save=True, body=None):
     """Proxy request to microservice"""
     if service_name not in SERVICES:
         raise HTTPException(status_code=404, detail=f"Service {service_name} not found")
@@ -67,29 +77,72 @@ async def proxy_request(service_name: str, path: str, request: Request):
     base_url = SERVICES[service_name]
     url = f"{base_url}{path}"
     
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        body = await request.body()
+    async with httpx.AsyncClient(timeout=httpx.Timeout(service_timeout(service_name), connect=15)) as client:
+        if body is None:
+            body = await request.body()
+        if request.method == 'POST' and 'application/json' in request.headers.get('content-type', ''):
+            from gateway.input_validation import normalize_inputs
+            try:
+                inputs = normalize_inputs(service_name, json.loads(body))
+                body = json.dumps(inputs, ensure_ascii=False).encode()
+            except (ValueError, UnicodeDecodeError):
+                raise HTTPException(422, 'Send valid JSON.')
+        started = time.monotonic()
+        workspace_owner = workspace.owner(request) if request.headers.get('x-enzymind-client') else None
         forward_headers = {k: v for k, v in request.headers.items() 
-                         if k.lower() not in ['host', 'content-length']}
+                         if k.lower() not in ['host', 'content-length', 'x-enzymind-client', 'x-enzymind-turn']}
+        if workspace_owner and service_name == 'active_sites':
+            forward_headers['X-Easifa-Session'] = workspace_owner
         
-        response = await client.request(
-            method=request.method,
-            url=url,
-            content=body,
-            headers=forward_headers,
-        )
+        try:
+            response = await client.request(
+                method=request.method, url=url, content=body, headers=forward_headers,
+            )
+        except httpx.TimeoutException:
+            response = httpx.Response(504, json={"success": False,
+                "error": "The analysis exceeded its time limit. It may still be running; check your saved results before retrying."})
+        except httpx.HTTPError as exc:
+            response = httpx.Response(502, json={"success": False,
+                "error": f"The analysis service is unavailable ({type(exc).__name__}). Check the service and try again."})
         
         content_type = response.headers.get('content-type', '')
+        if response.is_error and not content_type.startswith('application/json'):
+            response = httpx.Response(response.status_code, json={"success": False,
+                "error": f"The analysis service returned HTTP {response.status_code}. Check the service log and try again."})
+            content_type = 'application/json'
         if content_type.startswith('application/json'):
-            return JSONResponse(
-                content=response.json(),
+            payload = response.json()
+            if service_name == 'active_sites':
+                payload = normalize_active_site_payload(payload)
+            if response.status_code == 422 and isinstance(payload, dict):
+                payload.setdefault('error_code', 'invalid_input')
+            if response.is_error and isinstance(payload, dict) and not payload.get('error'):
+                payload = {**payload, 'success': False, 'error': str(payload.get('detail') or f'The service returned HTTP {response.status_code}.')}
+            if save and workspace_owner and request.method == 'POST' and isinstance(payload, dict):
+                payload = await workspace.preserve_structure(payload)
+                try:
+                    inputs = json.loads(body)
+                except (ValueError, UnicodeDecodeError):
+                    inputs = {"input_type": "uploaded file"}
+                record = workspace.store().save_result(workspace_owner, tool_for_service(service_name), inputs,
+                                                      payload, duration=time.monotonic() - started)
+                payload = {**payload, 'workspace_result': {k: v for k, v in record.items() if k != 'payload'}}
+            result = JSONResponse(
+                content=payload,
                 status_code=response.status_code
             )
         else:
-            return JSONResponse(
+            result = JSONResponse(
                 content={"result": response.text},
                 status_code=response.status_code
             )
+        if workspace_owner or service_name == "active_sites":
+            result.headers["Cache-Control"] = "private, no-store"
+        if service_name == "active_sites":
+            for cookie in response.headers.get_list("set-cookie"):
+                if cookie.startswith("enzymind_easifa_session="):
+                    result.headers.append("set-cookie", cookie)
+        return result
 
 
 async def proxy_form_request(service_name: str, path: str, request: Request):
@@ -100,7 +153,7 @@ async def proxy_form_request(service_name: str, path: str, request: Request):
     base_url = SERVICES[service_name]
     url = f"{base_url}{path}"
     
-    async with httpx.AsyncClient(timeout=300.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(service_timeout(service_name), connect=15)) as client:
         content_type = request.headers.get('content-type', '')
         
         if 'multipart/form-data' in content_type:
@@ -115,12 +168,12 @@ async def proxy_form_request(service_name: str, path: str, request: Request):
                 else:
                     data[key] = value
             
-            response = await client.post(url, data=data, files=files if files else None)
+            response = await client.request(request.method, url, data=data, files=files if files else None)
         else:
             body = await request.body()
             forward_headers = {k: v for k, v in request.headers.items() 
                              if k.lower() not in ['host', 'content-length']}
-            response = await client.post(url, content=body, headers=forward_headers)
+            response = await client.request(request.method, url, content=body, headers=forward_headers)
         
         content_type = response.headers.get('content-type', '')
         if content_type.startswith('application/json'):
@@ -129,76 +182,14 @@ async def proxy_form_request(service_name: str, path: str, request: Request):
             return JSONResponse(content={"result": response.text}, status_code=response.status_code)
 
 
-# ============ n8n Agent Proxy ============
-
+# Legacy public chat had no workspace identity or accounting.
 @app.post("/api/agent/chat")
 async def proxy_agent_chat(request: Request):
-    """Proxy chat request to n8n webhook for AI Agent
-    
-    Supports both JSON and multipart/form-data (file upload) requests.
-    Streams response back to client for real-time output.
-    """
-    client = None
-    response = None
-    try:
-        content_type = request.headers.get("content-type", "")
-        
-        body = await request.body()
-        # Build headers - disable compression for proper streaming
-        if "multipart/form-data" in content_type:
-            headers = {"Content-Type": content_type, "Accept-Encoding": "identity"}
-        else:
-            headers = {"Content-Type": "application/json", "Accept-Encoding": "identity"}
-        
-        # Use longer connect timeout but no read timeout for streaming
-        # 增加超时时间以支持长时间运行的工具调用
-        timeout = httpx.Timeout(connect=60.0, read=600.0, write=60.0, pool=None)
-        client = httpx.AsyncClient(timeout=timeout)
-        req = client.build_request("POST", N8N_WEBHOOK_URL, content=body, headers=headers)
-        response = await client.send(req, stream=True)
-
-        async def iter_response():
-            nonlocal client, response
-            try:
-                async for chunk in response.aiter_bytes():
-                    if chunk:
-                        yield chunk
-            except httpx.ReadTimeout:
-                # 读取超时时，发送一个错误消息给前端
-                error_msg = '{"type":"item","content":"\\n\\n⚠️ 响应超时，请重试。"}\n'
-                yield error_msg.encode('utf-8')
-            except Exception as e:
-                # 其他错误时，也发送错误消息
-                error_msg = f'{{"type":"item","content":"\\n\\n⚠️ 连接错误: {str(e)}"}}\n'
-                yield error_msg.encode('utf-8')
-            finally:
-                if response:
-                    await response.aclose()
-                if client:
-                    await client.aclose()
-
-        return StreamingResponse(
-            iter_response(),
-            status_code=response.status_code,
-            media_type="text/plain; charset=utf-8",
-            headers={
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "X-Accel-Buffering": "no",
-                "Connection": "keep-alive",
-            }
-        )
-    except httpx.TimeoutException as e:
-        if client:
-            await client.aclose()
-        raise HTTPException(status_code=504, detail=f"Agent service timeout: {str(e)}")
-    except httpx.ConnectError:
-        if client:
-            await client.aclose()
-        raise HTTPException(status_code=503, detail="Cannot connect to Agent service (n8n)")
-    except Exception as e:
-        if client:
-            await client.aclose()
-        raise HTTPException(status_code=500, detail=f"Agent service error: {str(e)}")
+    raise HTTPException(410, detail={
+        "code": "workspace_required",
+        "message": "Open the EnzyMind workspace to use the daily allowance or your own DeepSeek key.",
+        "url": "/enzymind/agent",
+    })
 
 
 # ============ PDB File Proxy ============
@@ -206,26 +197,15 @@ async def proxy_agent_chat(request: Request):
 @app.get("/api/pdb/{filename:path}")
 async def get_pdb_file(filename: str):
     """Get PDB file content from structure_predict service's output directory."""
-    possible_paths = [
-        f"/tmp/esmfold_output/{filename}",
-        f"/tmp/static/pdb/{filename}",
-    ]
-    
-    for pdb_path in possible_paths:
-        if os.path.exists(pdb_path):
-            try:
-                with open(pdb_path, 'r') as f:
-                    content = f.read()
-                return Response(
-                    content=content,
-                    media_type="chemical/x-pdb",
-                    headers={
-                        "Content-Disposition": f"inline; filename={filename}",
-                        "Access-Control-Allow-Origin": "*"
-                    }
-                )
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Failed to read PDB file: {str(e)}")
+    if not valid_pdb_name(filename):
+        raise HTTPException(status_code=400, detail='Invalid PDB filename')
+    content = read_generated_pdb(filename, legacy=True)
+    if content is not None:
+        return Response(content=content, media_type="chemical/x-pdb", headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        })
     
     raise HTTPException(status_code=404, detail=f"PDB file not found: {filename}")
 
@@ -265,11 +245,17 @@ async def proxy_km_predict(request: Request):
 # 8006 - Structure Prediction Service
 @app.api_route("/api/predict/structure", methods=["POST"])
 async def proxy_structure_predict(request: Request):
-    return await proxy_request("structure_predict", "/api/predict/structure", request)
+    return await structure_jobs.submit(request, lambda inputs: proxy_request("structure_predict", "/api/predict/structure", request, save=False, body=json.dumps(inputs).encode()))
+
+@app.get("/api/predict/structure/jobs/{job_id}")
+async def read_fold_job(job_id: str, request: Request):
+    return structure_jobs.get(request, job_id)
+
+app.router.add_event_handler("startup", structure_jobs.recover)
 
 @app.api_route("/api/query/structure", methods=["POST"])
 async def proxy_structure_query(request: Request):
-    return await proxy_request("structure_predict", "/api/query/structure", request)
+    return await proxy_structure_predict(request)
 
 @app.api_route("/api/predict/structure/download", methods=["POST"])
 async def proxy_structure_download(request: Request):
@@ -308,7 +294,8 @@ async def proxy_active_sites_sync(request: Request):
 
 @app.api_route("/api/predict/active-sites/{path:path}", methods=["GET", "POST"])
 async def proxy_active_sites_predict(path: str, request: Request):
-    return await proxy_form_request("active_sites", f"/api/predict/active-sites/{path}", request)
+    # Preserve GET, multipart boundaries, Cookie and X-Easifa-Session verbatim.
+    return await proxy_request("active_sites", f"/api/predict/active-sites/{path}", request)
 
 
 # 8008 - Enzyme Type Recommendation Service
@@ -334,7 +321,32 @@ async def proxy_protparam_params(request: Request):
 # 8010 - Sequence Alignment (BLAST) Service
 @app.api_route("/api/query/blast", methods=["POST"])
 async def proxy_blast(request: Request):
+    if request.headers.get('x-enzymind-client'):
+        from gateway.input_validation import normalize_inputs
+        inputs = normalize_inputs('sequence_alignment', await workspace.body_json(request))
+        record = await workspace.blast_jobs().submit(workspace.owner(request), inputs)
+        return {**record['payload'], 'workspace_result': {k: v for k, v in record.items() if k != 'payload'}}
     return await proxy_request("sequence_alignment", "/api/query/blast", request)
+
+@app.get("/api/query/blast/config")
+async def blast_config():
+    return {"local_available": bool(os.getenv("ENZYMIND_BLAST_DB"))}
+
+
+@app.get("/api/query/blast/results/{request_id}")
+async def retrieve_blast(request_id: str, request: Request):
+    import re
+    if not re.fullmatch(r"[A-Z0-9-]{5,40}", request_id):
+        raise HTTPException(422, "Invalid NCBI request ID.")
+    # Explicit public RID retrieval supports legacy clients without a workspace.
+    try:
+        async with httpx.AsyncClient(timeout=210) as client:
+            response = await client.get(SERVICES['sequence_alignment'] + f'/api/query/blast/results/{request_id}', params=dict(request.query_params))
+        return JSONResponse(response.json(), status_code=response.status_code)
+    except (httpx.HTTPError, ValueError):
+        return JSONResponse({'success': True, 'status': 'queued', 'request_id': request_id,
+            'last_poll_error': 'Retrieval is temporarily unavailable. Check this same request again in at least one minute; no new search was submitted.'})
+
 
 
 # 8011 - Function Get Service
@@ -374,6 +386,22 @@ async def proxy_enzyme_check(request: Request):
 
 
 # 8015 - Enzyme Full Info Service
+@app.get('/api/query/enzyme-full-info/{accession}/sequence')
+async def proxy_reference_sequence(accession: str, request: Request):
+    from gateway.input_validation import ACCESSION
+    if not ACCESSION.fullmatch(accession.upper()):
+        raise HTTPException(422, 'Enter a valid UniProt accession.')
+    return await proxy_request('enzyme_full_info', f'/api/query/enzyme-full-info/{accession.upper()}/sequence', request)
+
+
+@app.get('/api/query/enzyme-full-info/{accession}/structure')
+async def proxy_reference_structure(accession: str, request: Request):
+    from gateway.input_validation import ACCESSION
+    if not ACCESSION.fullmatch(accession.upper()):
+        raise HTTPException(422, 'Enter a valid UniProt accession.')
+    return await proxy_request('enzyme_full_info', f'/api/query/enzyme-full-info/{accession.upper()}/structure', request)
+
+
 @app.api_route("/api/query/enzyme-full-info", methods=["POST"])
 async def proxy_full_info(request: Request):
     return await proxy_request("enzyme_full_info", "/api/query/enzyme-full-info", request)
@@ -388,7 +416,14 @@ async def proxy_ec_info(request: Request):
 
 @app.api_route("/api/recommend/enzyme", methods=["POST"])
 async def proxy_recommend_enzyme(request: Request):
-    return await proxy_request("enzyme_type", "/api/recommend/enzyme", request)
+    # Keep the ordinary recommendation response, and honor top-K requests from
+    # older clients instead of silently ignoring their k parameter.
+    try:
+        inputs = await request.json()
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(422, 'Send valid JSON.')
+    path = "/api/query/enzyme-type/top-k" if isinstance(inputs, dict) and "k" in inputs else "/api/query/enzyme-type"
+    return await proxy_request("enzyme_type", path, request)
 
 
 # 8016 - Functional Site Service
@@ -421,4 +456,4 @@ async def api_health():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    uvicorn.run(app, host="0.0.0.0", port=8080, workers=1, proxy_headers=False)

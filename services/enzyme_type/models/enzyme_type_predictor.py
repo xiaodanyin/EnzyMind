@@ -20,26 +20,27 @@ class EnzymeTypePredictor:
     """
     
     # Default API URL
-    DEFAULT_API_URL = "http://cadd.iddd.group/retroplanner/api/enzyme_recommender"
+    DEFAULT_API_URL = "https://cadd.iddd.group/retroplanner/api/enzyme_recommender"
     
     def __init__(self, api_url: str = None, timeout: int = 60):
         """
         Initialize the predictor.
         
         Args:
-            api_url: RetroPlanner API URL (default: http://cadd.iddd.group/retroplanner/api/enzyme_recommender)
+            api_url: RetroPlanner API URL (default: https://cadd.iddd.group/retroplanner/api/enzyme_recommender)
             timeout: Request timeout in seconds (default: 60)
         """
         self.api_url = api_url or self.DEFAULT_API_URL
         self.timeout = timeout
     
-    def predict(self, reaction: str) -> Dict[str, Any]:
+    def predict(self, reaction: str, output_topk: int = 1) -> Dict[str, Any]:
         """
         Predict enzyme types for a given reaction.
         
         Args:
             reaction: Reaction SMILES string (format: "reactants>>products")
                      Example: "CC(=O)O>>CCO"
+            output_topk: Number of top recommendations to return (default: 1)
             
         Returns:
             Dictionary containing:
@@ -65,7 +66,7 @@ class EnzymeTypePredictor:
             )
             
             if response.status_code == 200:
-                return self._parse_success_response(response.json())
+                return self._parse_success_response(response.json(), topk=output_topk)
             elif response.status_code == 400:
                 error_msg = response.json().get("message", "Bad request.")
                 return {"success": False, "error": error_msg}
@@ -91,12 +92,13 @@ class EnzymeTypePredictor:
                 "error": f"Enzyme type prediction failed: {str(e)}"
             }
     
-    def _parse_success_response(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def _parse_success_response(self, data: Dict[str, Any], topk: int=5) -> Dict[str, Any]:
         """
         Parse the successful response from the API.
         
         Args:
             data: JSON response from the API
+            topk: Number of top recommendations to include
             
         Returns:
             Parsed result dictionary
@@ -124,7 +126,8 @@ class EnzymeTypePredictor:
                 "confidence": round(float(conf), 4)
             })
             formatted.append(f"EC: {ec} | Confidence: {conf:.4f}")
-        
+        recommendations = recommendations[:topk]
+        formatted = formatted[:topk]
         return {
             "success": True,
             "recommendations": recommendations,
@@ -142,7 +145,7 @@ class EnzymeTypePredictor:
         Returns:
             Formatted string with recommendations or error message
         """
-        result = self.predict(reaction)
+        result = self.predict(reaction, output_topk=1)
         
         if not result.get("success"):
             return f"[ERROR] {result.get('error', 'Unknown error')}"
@@ -164,7 +167,7 @@ class EnzymeTypePredictor:
         Returns:
             Dictionary with top K recommendations
         """
-        result = self.predict(reaction)
+        result = self.predict(reaction, output_topk=k)
         
         if not result.get("success"):
             return result
@@ -190,7 +193,7 @@ class EnzymeTypePredictor:
         Returns:
             Markdown formatted table
         """
-        result = self.predict(reaction)
+        result = self.predict(reaction, output_topk=5)
         
         if not result.get("success"):
             return f"**Error**: {result.get('error', 'Unknown error')}"

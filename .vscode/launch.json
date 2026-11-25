@@ -1,0 +1,18 @@
+{
+    // 使用 IntelliSense 了解相关属性。 
+    // 悬停以查看现有属性的描述。
+    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "run_evaluation(sample)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tests/evaluation/level_1_1_enzyme_check/gemini_enzyme_check_run_evaluation.py",
+            // "program": "${workspaceFolder}/tests/evaluation/level_4/gemini_run_evaluation_level4.py",
+            "args": ["main"],
+            "console": "integratedTerminal",
+            "cwd": "${fileDirname}"
+        }
+    ]
+}

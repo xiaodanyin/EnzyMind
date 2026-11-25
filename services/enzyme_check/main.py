@@ -2,7 +2,8 @@
 
 from fastapi import FastAPI, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
+from pydantic import BaseModel, Field, AliasChoices
 from typing import Optional, List, Dict, Any
 import uvicorn
 
@@ -28,10 +29,11 @@ checker = EnzymeChecker()
 
 
 class CheckRequest(BaseModel):
-    query: str = Field(..., description="UniProt accession ID")
+    query: str = Field(..., validation_alias=AliasChoices("query", "uniprot_id"), description="UniProt accession ID; uniprot_id is accepted for web-client compatibility")
 
 
 class CheckResponse(BaseModel):
+    source: Optional[dict] = None
     success: bool
     uniprot_id: str
     is_enzyme: Optional[bool] = None
@@ -68,7 +70,7 @@ async def check_enzyme(request: CheckRequest):
     if not request.query or not request.query.strip():
         raise HTTPException(status_code=400, detail="UniProt ID is required")
     
-    result = checker.check_enzyme(request.query.strip())
+    result = await run_in_threadpool(checker.check_enzyme, request.query.strip())
     
     return CheckResponse(
         success=result["success"],
@@ -77,7 +79,8 @@ async def check_enzyme(request: CheckRequest):
         message=result["message"],
         ec_numbers=result.get("ec_numbers", []),
         result=result["message"],
-        error=result.get("error")
+        error=result.get("error"),
+        source=result.get("source")
     )
 
 
@@ -86,7 +89,7 @@ async def check_enzyme_form(query: str = Form(...)):
     if not query or not query.strip():
         raise HTTPException(status_code=400, detail="UniProt ID is required")
     
-    result = checker.check_enzyme(query.strip())
+    result = await run_in_threadpool(checker.check_enzyme, query.strip())
     
     return CheckResponse(
         success=result["success"],
@@ -95,7 +98,8 @@ async def check_enzyme_form(query: str = Form(...)):
         message=result["message"],
         ec_numbers=result.get("ec_numbers", []),
         result=result["message"],
-        error=result.get("error")
+        error=result.get("error"),
+        source=result.get("source")
     )
 
 
@@ -109,7 +113,7 @@ async def check_enzyme_batch(request: BatchRequest):
     if not clean_ids:
         raise HTTPException(status_code=400, detail="No valid UniProt IDs provided")
     
-    results = checker.batch_check(clean_ids)
+    results = await run_in_threadpool(checker.batch_check, clean_ids)
     
     enzymes = sum(1 for r in results.values() if r.get("is_enzyme") is True)
     non_enzymes = sum(1 for r in results.values() if r.get("is_enzyme") is False)

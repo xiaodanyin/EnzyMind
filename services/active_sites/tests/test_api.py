@@ -387,7 +387,7 @@ class TestSyncPredictEndpoints:
             json={"uniprot_id": "invalid", "use_celery": True}
         )
         
-        assert response.status_code == 200
+        assert response.status_code == 422
         data = response.json()
         assert "[ERROR]" in data["result"]
     
@@ -500,7 +500,12 @@ class TestActiveSitesPredictor:
     def test_predictor_initialization(self):
         """Test predictor initialization with default values."""
         predictor = ActiveSitesPredictor()
-        assert predictor.api_base == "https://cadd.zju.edu.cn/easifa/api"
+        assert predictor.api_base == "https://cadd.drugflow.com/easifa/api"
+        assert predictor.api_bases == (
+            "https://cadd.drugflow.com/easifa/api",
+            "https://cadd.zju.edu.cn/easifa/api",
+            "https://cadd.iddd.group/easifa/api",
+        )
         assert predictor.timeout == 30
     
     def test_predictor_custom_initialization(self):
@@ -534,6 +539,56 @@ class TestActiveSitesPredictor:
         call_args = mock_post.call_args
         assert "from_uniprot" in call_args[0][0]
         assert call_args[1]["json"]["uniprot_id"] == "F6KCZ5"
+
+    @patch('requests.post')
+    def test_submit_uniprot_falls_back_in_order(self, mock_post):
+        """Test fallback from the primary through both backup endpoints."""
+        unavailable_response = Mock()
+        unavailable_response.status_code = 503
+        unavailable_response.headers = {}
+        unavailable_response.text = "temporarily unavailable"
+
+        success_response = Mock()
+        success_response.status_code = 200
+        success_response.json.return_value = {
+            "job_id": "backup-job-123",
+            "task_manager": "celery"
+        }
+
+        mock_post.side_effect = [
+            Exception("primary unavailable"),
+            unavailable_response,
+            success_response,
+        ]
+
+        predictor = ActiveSitesPredictor()
+        result = predictor.submit_uniprot("F6KCZ5")
+
+        assert result["success"] is True
+        assert result["job_id"] == "backup-job-123"
+        assert [call.args[0] for call in mock_post.call_args_list] == [
+            "https://cadd.drugflow.com/easifa/api/from_uniprot",
+            "https://cadd.zju.edu.cn/easifa/api/from_uniprot",
+            "https://cadd.iddd.group/easifa/api/from_uniprot",
+        ]
+        assert predictor.api_base == "https://cadd.iddd.group/easifa/api"
+
+    @patch('requests.get')
+    def test_job_status_prefers_last_successful_endpoint(self, mock_get):
+        """Test polling stays on the endpoint that accepted the async job."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"status": "completed"}
+        mock_get.return_value = mock_response
+
+        predictor = ActiveSitesPredictor()
+        predictor.api_base = "https://cadd.zju.edu.cn/easifa/api"
+        result = predictor.get_job_status("backup-job-123")
+
+        assert result["success"] is True
+        assert mock_get.call_args.args[0] == (
+            "https://cadd.zju.edu.cn/easifa/api/job/backup-job-123"
+        )
     
     @patch('requests.post')
     def test_submit_sequence_success(self, mock_post):
@@ -559,6 +614,24 @@ class TestActiveSitesPredictor:
         mock_post.assert_called_once()
         call_args = mock_post.call_args
         assert "from_sequence" in call_args[0][0]
+
+    @patch('requests.post')
+    def test_submit_uniprot_non_json_response(self, mock_post):
+        """Test UniProt submission reports a readable error for non-JSON responses."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "text/html"}
+        mock_response.text = "<html>temporary upstream error</html>"
+        mock_response.url = "https://cadd.drugflow.com/easifa/api/from_uniprot"
+        mock_response.json.side_effect = ValueError("Expecting value: line 1 column 1")
+        mock_post.return_value = mock_response
+
+        predictor = ActiveSitesPredictor()
+        result = predictor.submit_uniprot("F6KCZ5")
+
+        assert result["success"] is False
+        assert "Expected JSON from EasIFA" in result["error"]
+        assert "text/html" in result["error"]
     
     @patch('requests.post')
     def test_submit_structure_success(self, mock_post):

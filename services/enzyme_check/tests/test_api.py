@@ -9,8 +9,28 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from main import app
+from shared.uniprot import UniProtDownloadError
 
 client = TestClient(app)
+
+
+def test_health_remains_responsive_during_slow_annotation():
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    entered, release = threading.Event(), threading.Event()
+    def slow_lookup(_accession, **_options):
+        entered.set()
+        assert release.wait(5)
+        return MOCK_ENZYME_RESPONSE
+    with TestClient(app) as active, ThreadPoolExecutor(max_workers=2) as pool:
+        with patch('models.enzyme_checker.uniprot_json_client.fetch_json', side_effect=slow_lookup):
+            query = pool.submit(active.post, '/api/check/enzyme', json={'query': 'P00698'})
+            try:
+                assert entered.wait(2)
+                assert pool.submit(active.get, '/health').result(timeout=2).status_code == 200
+            finally:
+                release.set()
+            assert query.result(timeout=2).json()['success'] is True
 
 
 MOCK_ENZYME_RESPONSE = {
@@ -39,12 +59,17 @@ class TestHealthEndpoint:
 
 
 class TestEnzymeCheckEndpoint:
-    @patch("models.enzyme_checker.requests.get")
+    @pytest.mark.parametrize("field", ["query", "uniprot_id"])
+    @patch("models.enzyme_checker.uniprot_json_client.fetch_json")
+    def test_platform_and_agent_input_names(self, mock_get, field):
+        mock_get.return_value = MOCK_ENZYME_RESPONSE
+        response = client.post("/api/check/enzyme", json={field: "P12345"})
+        assert response.status_code == 200
+        assert response.json()["is_enzyme"] is True
+
+    @patch("models.enzyme_checker.uniprot_json_client.fetch_json")
     def test_check_enzyme_true(self, mock_get):
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = MOCK_ENZYME_RESPONSE
-        mock_get.return_value = mock_response
+        mock_get.return_value = MOCK_ENZYME_RESPONSE
         
         response = client.post("/api/check/enzyme", json={"query": "P12345"})
         
@@ -54,12 +79,9 @@ class TestEnzymeCheckEndpoint:
         assert data["is_enzyme"] is True
         assert "1.1.1.1" in data["ec_numbers"]
     
-    @patch("models.enzyme_checker.requests.get")
+    @patch("models.enzyme_checker.uniprot_json_client.fetch_json")
     def test_check_non_enzyme(self, mock_get):
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = MOCK_NON_ENZYME_RESPONSE
-        mock_get.return_value = mock_response
+        mock_get.return_value = MOCK_NON_ENZYME_RESPONSE
         
         response = client.post("/api/check/enzyme", json={"query": "P00000"})
         
@@ -68,11 +90,9 @@ class TestEnzymeCheckEndpoint:
         assert data["success"] is True
         assert data["is_enzyme"] is False
     
-    @patch("models.enzyme_checker.requests.get")
+    @patch("models.enzyme_checker.uniprot_json_client.fetch_json")
     def test_check_not_found(self, mock_get):
-        mock_response = MagicMock()
-        mock_response.status_code = 404
-        mock_get.return_value = mock_response
+        mock_get.side_effect = UniProtDownloadError("UniProt accession not found", "uniprot_not_found", False)
         
         response = client.post("/api/check/enzyme", json={"query": "INVALID"})
         
@@ -87,12 +107,9 @@ class TestEnzymeCheckEndpoint:
 
 
 class TestEnzymeCheckFormEndpoint:
-    @patch("models.enzyme_checker.requests.get")
+    @patch("models.enzyme_checker.uniprot_json_client.fetch_json")
     def test_form_success(self, mock_get):
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = MOCK_ENZYME_RESPONSE
-        mock_get.return_value = mock_response
+        mock_get.return_value = MOCK_ENZYME_RESPONSE
         
         response = client.post("/api/check/enzyme/form", data={"query": "P12345"})
         
@@ -102,17 +119,10 @@ class TestEnzymeCheckFormEndpoint:
 
 
 class TestBatchEndpoint:
-    @patch("models.enzyme_checker.requests.get")
+    @patch("models.enzyme_checker.uniprot_json_client.fetch_json")
     def test_batch_mixed(self, mock_get):
-        def mock_side_effect(url, timeout):
-            mock_resp = MagicMock()
-            if "P12345" in url:
-                mock_resp.status_code = 200
-                mock_resp.json.return_value = MOCK_ENZYME_RESPONSE
-            else:
-                mock_resp.status_code = 200
-                mock_resp.json.return_value = MOCK_NON_ENZYME_RESPONSE
-            return mock_resp
+        def mock_side_effect(accession, **_options):
+            return MOCK_ENZYME_RESPONSE if accession == 'P12345' else MOCK_NON_ENZYME_RESPONSE
         
         mock_get.side_effect = mock_side_effect
         
@@ -130,12 +140,9 @@ class TestBatchEndpoint:
 
 
 class TestLegacyEndpoint:
-    @patch("models.enzyme_checker.requests.get")
+    @patch("models.enzyme_checker.uniprot_json_client.fetch_json")
     def test_legacy(self, mock_get):
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = MOCK_ENZYME_RESPONSE
-        mock_get.return_value = mock_response
+        mock_get.return_value = MOCK_ENZYME_RESPONSE
         
         response = client.post("/check/enzyme", json={"query": "P12345"})
         

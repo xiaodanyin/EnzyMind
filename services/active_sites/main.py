@@ -16,16 +16,20 @@ EasIFA API async workflow:
 3. Get results from /results/{job_id} when completed
 """
 
-from fastapi import FastAPI, Form, File, UploadFile, HTTPException
+from fastapi import FastAPI, Form, File, UploadFile, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 import uvicorn
 import tempfile
 import os
+import secrets
 
 from models.active_sites_predictor import ActiveSitesPredictor
 from models.utils import classify_input, is_uniprot_id, is_amino_acid_sequence
+from models.easifa_access import (SESSION_HEADER, SESSION_COOKIE, request_owner,
+                                 valid_token, cookie_secure)
 
 app = FastAPI(
     title="Active Sites Prediction Service",
@@ -42,7 +46,44 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global predictor instance
+@app.middleware("http")
+async def easifa_identity(request: Request, call_next):
+    """Carry one caller identity through submit, polling and retrieval, including sync tools."""
+    if not (request.url.path.startswith("/api/predict/active-sites")
+            or request.url.path == "/api/query/active-sites"):
+        return await call_next(request)
+    key = request.headers.get(SESSION_HEADER)
+    if key is not None and not valid_token(key):
+        return JSONResponse({"detail": "Invalid X-Easifa-Session"}, status_code=400,
+                            headers={"Cache-Control": "private, no-store"})
+    # Existing wildcard CORS must not expose a browser's cookie-owned jobs or
+    # recovery key to a different origin. Same-origin proxies preserve Fetch Metadata;
+    # cross-origin API callers can explicitly supply their own capability header.
+    if (key is None and request.cookies.get(SESSION_COOKIE) and request.headers.get("origin")
+            and request.headers.get("sec-fetch-site") != "same-origin"):
+        return JSONResponse({"detail": "Cross-origin access requires X-Easifa-Session"}, status_code=403,
+                            headers={"Cache-Control": "private, no-store"})
+    key = key or request.cookies.get(SESSION_COOKIE)
+    if not valid_token(key):
+        key = secrets.token_urlsafe(32)
+    context = request_owner.set(key)
+    try:
+        response = await call_next(request)
+        response.set_cookie(SESSION_COOKIE, key, httponly=True, secure=cookie_secure(),
+                            samesite="lax", path="/", max_age=31536000)
+        response.headers["Cache-Control"] = "private, no-store"
+        return response
+    finally:
+        request_owner.reset(context)
+
+
+@app.get("/api/predict/active-sites/session")
+def easifa_session():
+    """Explicit recovery/initialization; never include this credential in job responses."""
+    return {"session_token": request_owner.get()}
+
+
+# Global predictor instance (identity is request-scoped, never stored on this instance).
 predictor: Optional[ActiveSitesPredictor] = None
 
 
@@ -86,6 +127,9 @@ class ActiveSitesPredictRequest(BaseModel):
 class ActiveSitesPredictResponse(BaseModel):
     """Response model for active sites prediction (sync)."""
     result: str
+    # Preserve machine-readable structures/sites for the shared result workspace.
+    data: Optional[Dict[str, Any]] = None
+    job_id: Optional[str] = None
 
 
 class ActiveSitesSubmitResponse(BaseModel):
@@ -362,6 +406,13 @@ def get_job_results(job_id: str):
         )
 
 
+def invalid_protein(fields, message):
+    return JSONResponse({"success": False, "error_code": "invalid_input", "error": message,
+                         "result": "[ERROR] " + message,
+                         "detail": [{"loc": ["body", field], "msg": message, "type": "value_error"}
+                                    for field in fields]}, status_code=422)
+
+
 # ============== Synchronous Prediction Endpoints ==============
 
 @app.post("/api/predict/active-sites", response_model=ActiveSitesPredictResponse)
@@ -383,38 +434,21 @@ def predict_active_sites_sync(request: ActiveSitesSyncRequest):
     Returns:
         Active sites prediction results as markdown table
     """
-    pred = get_predictor()
-    
-    # Check which input type is provided
-    if request.uniprot_id and request.aa_sequence:
-        return ActiveSitesPredictResponse(
-            result="[ERROR] Please provide either uniprot_id or aa_sequence, not both"
-        )
-    
+    fields = ["uniprot_id", "aa_sequence"]
+    if bool(request.uniprot_id) == bool(request.aa_sequence):
+        return invalid_protein(fields, "Provide exactly one of uniprot_id or aa_sequence.")
     if request.uniprot_id:
-        # UniProt ID input
         if not is_uniprot_id(request.uniprot_id):
-            return ActiveSitesPredictResponse(
-                result=f"[ERROR] Invalid UniProt ID format: {request.uniprot_id}"
-            )
+            return invalid_protein(["uniprot_id"], "Enter a valid UniProt accession.")
+        pred = get_predictor()
         submit_result = pred.submit_uniprot(request.uniprot_id, use_celery=request.use_celery)
-        
-    elif request.aa_sequence:
-        # Amino acid sequence input
-        if not is_amino_acid_sequence(request.aa_sequence):
-            return ActiveSitesPredictResponse(
-                result="[ERROR] Invalid amino acid sequence format"
-            )
-        submit_result = pred.submit_sequence(
-            request.aa_sequence, 
-            rxn_smiles=request.rxn_smiles,
-            use_celery=request.use_celery
-        )
     else:
-        return ActiveSitesPredictResponse(
-            result="[ERROR] Please provide either uniprot_id or aa_sequence"
-        )
-    
+        if not is_amino_acid_sequence(request.aa_sequence):
+            return invalid_protein(["aa_sequence"], "Enter a valid amino acid sequence.")
+        pred = get_predictor()
+        submit_result = pred.submit_sequence(request.aa_sequence, rxn_smiles=request.rxn_smiles,
+                                            use_celery=request.use_celery)
+
     if not submit_result.get("success"):
         return ActiveSitesPredictResponse(
             result=f"[ERROR] Failed to submit task: {submit_result.get('error')}"
@@ -434,7 +468,7 @@ def predict_active_sites_sync(request: ActiveSitesSyncRequest):
     results_data = wait_result.get("data", {})
     markdown = pred.format_results_to_markdown(results_data)
     
-    return ActiveSitesPredictResponse(result=markdown)
+    return ActiveSitesPredictResponse(result=markdown, data=results_data, job_id=job_id)
 
 
 @app.post("/api/predict/active-sites/sequence", response_model=ActiveSitesPredictResponse)
@@ -485,7 +519,7 @@ def predict_active_sites_sequence_sync(
     results_data = wait_result.get("data", {})
     markdown = pred.format_results_to_markdown(results_data)
     
-    return ActiveSitesPredictResponse(result=markdown)
+    return ActiveSitesPredictResponse(result=markdown, data=results_data, job_id=job_id)
 
 
 @app.post("/api/predict/active-sites/structure", response_model=ActiveSitesPredictResponse)
@@ -541,7 +575,7 @@ async def predict_active_sites_structure_sync(
         results_data = wait_result.get("data", {})
         markdown = pred.format_results_to_markdown(results_data)
         
-        return ActiveSitesPredictResponse(result=markdown)
+        return ActiveSitesPredictResponse(result=markdown, data=results_data, job_id=job_id)
         
     except Exception as e:
         return ActiveSitesPredictResponse(

@@ -1,0 +1,8 @@
+*
+!requirements.lock
+!bootstrap.py
+!science_smoke.py
+!Dockerfile
+!wheelhouse
+!wheelhouse/.gitignore
+!wheelhouse/*.whl

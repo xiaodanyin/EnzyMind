@@ -42,7 +42,7 @@ class TestUtilityFunctions:
         from main import is_uniprot_id
         assert is_uniprot_id("MKTAYIAKQRQ") is False
         assert is_uniprot_id("12345") is False
-        assert is_uniprot_id("p12345") is False  # 小写
+        assert is_uniprot_id("p12345") is True  # Normalized by shared resolver
     
     def test_is_fasta_content(self):
         """测试FASTA内容检测"""
@@ -159,9 +159,9 @@ class TestFastAPIEndpoints:
         """测试缺少查询参数"""
         response = client.post(
             "/api/recognize/enzyme",
-            data={"input_type": "sequence"}
+            json={"input_type": "sequence"}
         )
-        assert response.status_code == 400
+        assert response.status_code == 422
 
 
 class TestEnzymePredictor:

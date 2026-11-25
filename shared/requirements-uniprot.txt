@@ -1,0 +1,2 @@
+# Decompress the read-only UniProt snapshot; no database/server dependencies.
+zstandard==0.25.0

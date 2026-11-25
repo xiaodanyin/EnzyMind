@@ -1,8 +1,9 @@
 import axios from 'axios'
+import { getAccessKey, platformResults } from '@/utils/workspace'
 
 const api = axios.create({
   baseURL: '/enzymind/api',
-  timeout: 300000, // 5 minutes for long-running predictions
+  timeout: 960000, // Cover the ordinary service's 15-minute deadline plus transport.
   headers: {
     'Content-Type': 'application/json',
   },
@@ -11,7 +12,11 @@ const api = axios.create({
 // Request interceptor
 api.interceptors.request.use(
   (config) => {
-    // Add any request preprocessing here
+    // Cover the backend job deadline, including cold model loading / NCBI queueing.
+    if (config.url?.startsWith('/predict/structure')) config.timeout = 3720000
+    else if (config.url?.startsWith('/query/blast')) config.timeout = 1020000
+    config.headers['X-Enzymind-Client'] = getAccessKey()
+    if (config.method === 'post') platformResults[config.url] = null
     return config
   },
   (error) => {
@@ -22,11 +27,24 @@ api.interceptors.request.use(
 // Response interceptor
 api.interceptors.response.use(
   (response) => {
+    if (response.data?.workspace_result) {
+      const { workspace_result, ...payload } = response.data
+      platformResults[response.config.url] = { ...workspace_result, payload }
+    }
     return response.data
   },
   (error) => {
-    const message = error.response?.data?.error || error.message || 'An error occurred'
-    return Promise.reject(new Error(message))
+    if (error.response?.data?.workspace_result) {
+      const { workspace_result, ...payload } = error.response.data
+      platformResults[error.config.url] = { ...workspace_result, payload }
+    }
+    const message = error.response?.data?.error || error.response?.data?.detail || error.message || 'An error occurred'
+    const failure = new Error(typeof message === 'string' ? message : JSON.stringify(message))
+    if (error.response?.data?.workspace_result) {
+      const { workspace_result, ...payload } = error.response.data
+      failure.workspaceResult = { ...workspace_result, payload }
+    }
+    return Promise.reject(failure)
   }
 )
 

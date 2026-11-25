@@ -10,6 +10,7 @@ Port: 18911
 
 from fastapi import FastAPI, HTTPException, Form, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from typing import Optional, List
 import uvicorn
@@ -47,6 +48,7 @@ class FunctionQueryRequest(BaseModel):
 
 class FunctionQueryResponse(BaseModel):
     """Response model for function query."""
+    source: Optional[dict] = None
     success: bool = Field(..., description="Whether the query was successful")
     uniprot_id: str = Field(..., description="UniProt accession ID")
     function: Optional[str] = Field(None, description="Protein function description")
@@ -98,7 +100,7 @@ async def query_function(request: FunctionQueryRequest):
     if not request.query or not request.query.strip():
         raise HTTPException(status_code=400, detail="UniProt ID is required")
     
-    result = function_query.get_function(request.query.strip())
+    result = await run_in_threadpool(function_query.get_function, request.query.strip())
     
     return FunctionQueryResponse(
         success=result["success"],
@@ -107,7 +109,8 @@ async def query_function(request: FunctionQueryRequest):
         protein_name=result.get("protein_name"),
         organism=result.get("organism"),
         gene_names=result.get("gene_names"),
-        error=result.get("error")
+        error=result.get("error"),
+        source=result.get('source')
     )
 
 
@@ -123,7 +126,7 @@ async def query_function_form(
     if not query or not query.strip():
         raise HTTPException(status_code=400, detail="UniProt ID is required")
     
-    result = function_query.get_function(query.strip())
+    result = await run_in_threadpool(function_query.get_function, query.strip())
     
     return FunctionQueryResponse(
         success=result["success"],
@@ -132,7 +135,8 @@ async def query_function_form(
         protein_name=result.get("protein_name"),
         organism=result.get("organism"),
         gene_names=result.get("gene_names"),
-        error=result.get("error")
+        error=result.get("error"),
+        source=result.get('source')
     )
 
 
@@ -154,7 +158,7 @@ async def query_function_batch(request: BatchQueryRequest):
     if not clean_ids:
         raise HTTPException(status_code=400, detail="No valid UniProt IDs provided")
     
-    results = function_query.batch_get_functions(clean_ids)
+    results = await run_in_threadpool(function_query.batch_get_functions, clean_ids)
     
     successful = sum(1 for r in results.values() if r["success"])
     
@@ -193,7 +197,7 @@ async def query_function_file(
     # Deduplicate
     uniprot_ids = list(set(uniprot_ids))
     
-    results = function_query.batch_get_functions(uniprot_ids)
+    results = await run_in_threadpool(function_query.batch_get_functions, uniprot_ids)
     
     successful = sum(1 for r in results.values() if r["success"])
     

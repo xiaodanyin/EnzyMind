@@ -11,6 +11,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from main import app
+from shared.uniprot import UniProtDownloadError
 
 client = TestClient(app)
 
@@ -86,13 +87,10 @@ class TestHealthEndpoint:
 class TestFunctionQueryEndpoint:
     """Test /api/query/function endpoint."""
     
-    @patch("models.function_query.requests.get")
+    @patch("models.function_query.uniprot_json_client.fetch_json")
     def test_query_function_success(self, mock_get):
         """Test successful function query."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = MOCK_UNIPROT_RESPONSE
-        mock_get.return_value = mock_response
+        mock_get.return_value = MOCK_UNIPROT_RESPONSE
         
         response = client.post(
             "/api/query/function",
@@ -108,12 +106,10 @@ class TestFunctionQueryEndpoint:
         assert data["organism"] == "Homo sapiens"
         assert "GOT2" in data["gene_names"]
     
-    @patch("models.function_query.requests.get")
+    @patch("models.function_query.uniprot_json_client.fetch_json")
     def test_query_function_not_found(self, mock_get):
         """Test function query with non-existent UniProt ID."""
-        mock_response = MagicMock()
-        mock_response.status_code = 404
-        mock_get.return_value = mock_response
+        mock_get.side_effect = UniProtDownloadError("UniProt accession not found", "uniprot_not_found", False)
         
         response = client.post(
             "/api/query/function",
@@ -125,13 +121,10 @@ class TestFunctionQueryEndpoint:
         assert data["success"] is False
         assert "not found" in data["error"]
     
-    @patch("models.function_query.requests.get")
+    @patch("models.function_query.uniprot_json_client.fetch_json")
     def test_query_function_no_function_text(self, mock_get):
         """Test query when protein has no function annotation."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = MOCK_NO_FUNCTION_RESPONSE
-        mock_get.return_value = mock_response
+        mock_get.return_value = MOCK_NO_FUNCTION_RESPONSE
         
         response = client.post(
             "/api/query/function",
@@ -166,13 +159,10 @@ class TestFunctionQueryEndpoint:
 class TestFunctionQueryFormEndpoint:
     """Test /api/query/function/form endpoint."""
     
-    @patch("models.function_query.requests.get")
+    @patch("models.function_query.uniprot_json_client.fetch_json")
     def test_query_function_form_success(self, mock_get):
         """Test successful form-based function query."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = MOCK_UNIPROT_RESPONSE
-        mock_get.return_value = mock_response
+        mock_get.return_value = MOCK_UNIPROT_RESPONSE
         
         response = client.post(
             "/api/query/function/form",
@@ -197,13 +187,10 @@ class TestFunctionQueryFormEndpoint:
 class TestBatchQueryEndpoint:
     """Test /api/query/function/batch endpoint."""
     
-    @patch("models.function_query.requests.get")
+    @patch("models.function_query.uniprot_json_client.fetch_json")
     def test_batch_query_success(self, mock_get):
         """Test successful batch query."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = MOCK_UNIPROT_RESPONSE
-        mock_get.return_value = mock_response
+        mock_get.return_value = MOCK_UNIPROT_RESPONSE
         
         response = client.post(
             "/api/query/function/batch",
@@ -217,17 +204,14 @@ class TestBatchQueryEndpoint:
         assert "P12345" in data["results"]
         assert "P67890" in data["results"]
     
-    @patch("models.function_query.requests.get")
+    @patch("models.function_query.uniprot_json_client.fetch_json")
     def test_batch_query_partial_success(self, mock_get):
         """Test batch query with some failures."""
-        def mock_get_side_effect(url, timeout):
-            mock_resp = MagicMock()
-            if "INVALID" in url:
-                mock_resp.status_code = 404
-            else:
-                mock_resp.status_code = 200
-                mock_resp.json.return_value = MOCK_UNIPROT_RESPONSE
-            return mock_resp
+        def mock_get_side_effect(accession, *, capability):
+            assert capability == 'function'
+            if 'INVALID' in accession:
+                raise UniProtDownloadError('UniProt accession not found', 'uniprot_not_found', False)
+            return MOCK_UNIPROT_RESPONSE
         
         mock_get.side_effect = mock_get_side_effect
         
@@ -250,13 +234,10 @@ class TestBatchQueryEndpoint:
         
         assert response.status_code == 400
     
-    @patch("models.function_query.requests.get")
+    @patch("models.function_query.uniprot_json_client.fetch_json")
     def test_batch_query_deduplication(self, mock_get):
         """Test that duplicate IDs are deduplicated."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = MOCK_UNIPROT_RESPONSE
-        mock_get.return_value = mock_response
+        mock_get.return_value = MOCK_UNIPROT_RESPONSE
         
         response = client.post(
             "/api/query/function/batch",
@@ -272,13 +253,10 @@ class TestBatchQueryEndpoint:
 class TestFileUploadEndpoint:
     """Test /api/query/function/file endpoint."""
     
-    @patch("models.function_query.requests.get")
+    @patch("models.function_query.uniprot_json_client.fetch_json")
     def test_file_upload_success(self, mock_get):
         """Test successful file upload query."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = MOCK_UNIPROT_RESPONSE
-        mock_get.return_value = mock_response
+        mock_get.return_value = MOCK_UNIPROT_RESPONSE
         
         file_content = b"P12345\nP67890\n"
         
@@ -291,13 +269,10 @@ class TestFileUploadEndpoint:
         data = response.json()
         assert data["total"] == 2
     
-    @patch("models.function_query.requests.get")
+    @patch("models.function_query.uniprot_json_client.fetch_json")
     def test_file_upload_with_comments(self, mock_get):
         """Test file upload with comment lines."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = MOCK_UNIPROT_RESPONSE
-        mock_get.return_value = mock_response
+        mock_get.return_value = MOCK_UNIPROT_RESPONSE
         
         file_content = b"# This is a comment\nP12345\n# Another comment\nP67890\n"
         
@@ -325,13 +300,10 @@ class TestFileUploadEndpoint:
 class TestLegacyEndpoint:
     """Test legacy /query/function endpoint."""
     
-    @patch("models.function_query.requests.get")
+    @patch("models.function_query.uniprot_json_client.fetch_json")
     def test_legacy_endpoint(self, mock_get):
         """Test legacy endpoint for backward compatibility."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = MOCK_UNIPROT_RESPONSE
-        mock_get.return_value = mock_response
+        mock_get.return_value = MOCK_UNIPROT_RESPONSE
         
         response = client.post(
             "/query/function",
@@ -346,7 +318,7 @@ class TestLegacyEndpoint:
 class TestErrorHandling:
     """Test error handling scenarios."""
     
-    @patch("models.function_query.requests.get")
+    @patch("models.function_query.uniprot_json_client.fetch_json")
     def test_timeout_error(self, mock_get):
         """Test timeout handling."""
         import requests
@@ -362,7 +334,7 @@ class TestErrorHandling:
         assert data["success"] is False
         assert "timeout" in data["error"].lower()
     
-    @patch("models.function_query.requests.get")
+    @patch("models.function_query.uniprot_json_client.fetch_json")
     def test_connection_error(self, mock_get):
         """Test connection error handling."""
         import requests

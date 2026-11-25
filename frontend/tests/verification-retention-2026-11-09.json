@@ -1,0 +1,95 @@
+{
+  "date": "2026-11-09",
+  "feature": "90-day retention and expiry/download notices",
+  "policy": {
+    "days": 90,
+    "basis": "Each result and Agent turn creation timestamp",
+    "startup_cleanup": true,
+    "interval_seconds": 3600,
+    "warning_days": 7,
+    "live_agent_protection": "Valid lease, at most the existing two-hour execution limit",
+    "backups": "90 days from backup file modification time; separate window from online records"
+  },
+  "verification": {
+    "gateway_unittest": {
+      "passed": 39,
+      "retention_cases": 8,
+      "scope": "Boundary, dry run, recent records, active references, memory reset, safe file pruning, SQLite page reclamation, policy API and accelerated scheduler"
+    },
+    "frontend_unit": {
+      "passed": 16
+    },
+    "production_build": {
+      "passed": true,
+      "warnings": "Existing third-party use-client directives and large scientific viewer/editor bundles"
+    },
+    "browser_built_site": {
+      "passed": 27,
+      "failed": 0,
+      "scope": "11 model pages, Ketcher molecule/reaction, Mol*, home shortcuts, Agent streaming/memory, retention and complete JSON downloads"
+    },
+    "browser_running_frontend": {
+      "passed": 3,
+      "failed": 0,
+      "url": "http://127.0.0.1:3010/enzymind/",
+      "mobile_visual_review": true
+    },
+    "workflow_regression_file": {
+      "passed": true
+    }
+  },
+  "activation": {
+    "counts_preserved": {
+      "sessions": 21,
+      "turns": 51,
+      "events": 305,
+      "results": 57
+    },
+    "all_existing_values_preserved": true,
+    "sqlite_integrity": "ok",
+    "auto_vacuum": 2,
+    "policy": {
+      "retention_days": 90,
+      "warning_days": 7,
+      "cleanup_interval_seconds": 3600,
+      "basis": "Each result and conversation turn expires 90 days after creation."
+    },
+    "startup_maintenance": {
+      "retention_days": 90,
+      "checked_at": 1794208285.8087711,
+      "dry_run": false,
+      "records": {
+        "results": 0,
+        "turns": 0,
+        "events": 0,
+        "sessions": 0,
+        "memory_resets": 0
+      },
+      "batches": 1,
+      "backlog_possible": false,
+      "artifacts": {
+        "files": 0,
+        "bytes": 0,
+        "errors": 0
+      },
+      "backups": {
+        "files": 0,
+        "bytes": 0,
+        "errors": 0
+      },
+      "storage": {
+        "incremental_vacuum": true,
+        "pages_reclaimed": 0,
+        "free_pages": 0,
+        "checkpoint_busy": 0
+      }
+    }
+  },
+  "excluded": "Shared n8n database, reference databases, model weights, external backups and other projects",
+  "limits": [
+    "Gateway downtime delays cleanup until startup.",
+    "Database cleanup is batched for bounded lock duration; backlog continues on later passes.",
+    "Backup copies have their own 90-day file-age rotation.",
+    "Browser model regression uses fixtures and does not revalidate scientific accuracy."
+  ]
+}

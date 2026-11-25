@@ -2,33 +2,33 @@
 
 ## Overview
 
-The EC Number Prediction Service predicts Enzyme Commission (EC) numbers for proteins using ESM embeddings and the MaxSep method.
+This service predicts Enzyme Commission (EC) classifications using ESM embeddings and MaxSep selection.
 
 ## Features
 
-- Supported input types:
+- Supported input formats:
   - Amino acid sequence string
-  - UniProt ID (sequence is fetched automatically)
+  - UniProt accession (resolved through the shared UniProt client)
   - FASTA file upload
-  - FASTA-formatted content
+  - FASTA content
 
-## API Endpoints
+## API endpoints
 
 ### POST /api/predict/ec
 
-EC number prediction (JSON input).
+EC prediction endpoint (JSON input).
 
 **Request body (JSON):**
 ```json
 {
-    "input_type": "sequence",  // options: fasta, sequence, uniprot
+    "input_type": "sequence",
     "query": "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQ"
 }
 ```
 
 **Parameters:**
-- `input_type` (required): `fasta`, `sequence`, or `uniprot`
-- `query` (required): amino acid sequence, UniProt ID, or FASTA content
+- `input_type` (required): Input type: `fasta`, `sequence`, or `uniprot`
+- `query` (required): Query string (amino acid sequence, UniProt accession, or FASTA)
 
 **Response:**
 ```json
@@ -41,11 +41,11 @@ EC number prediction (JSON input).
 
 ### GET /health
 
-Health check.
+Health check endpoint.
 
 ### GET /
 
-Service info.
+Service information endpoint.
 
 ## Installation
 
@@ -53,15 +53,16 @@ Service info.
 cd services/ecnumber_predict
 python -m venv venv
 source venv/bin/activate  # Linux/Mac
-# or venv\Scripts\activate  # Windows
+# Or venv\Scripts\activate  # Windows
 pip install -r requirements.txt
 ```
 
-## Run
+
+## Running
 
 ```bash
 python main.py
-# or
+# Or
 uvicorn main:app --host 0.0.0.0 --port 18902 --reload
 ```
 
@@ -71,7 +72,7 @@ uvicorn main:app --host 0.0.0.0 --port 18902 --reload
 pytest tests/ -v
 ```
 
-## Usage Examples
+## Examples
 
 ### Python client
 
@@ -80,14 +81,14 @@ from client import ECNumberPredictionClient
 
 client = ECNumberPredictionClient(base_url="http://localhost:18902")
 
-# Predict EC number for a sequence
+# Predict EC numbers from a sequence
 result = client.predict_sequence("MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQ")
 print(f"EC Number: {result['result']['ec_number']}")
 
-# Using UniProt ID
+# Use a UniProt accession
 result = client.predict_uniprot("P12345")
 
-# Using FASTA content
+# Use FASTA content
 fasta_content = ">query\nMKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQ"
 result = client.predict_fasta_content(fasta_content)
 ```
@@ -95,43 +96,43 @@ result = client.predict_fasta_content(fasta_content)
 ### curl
 
 ```bash
-# Predict EC number for a sequence (JSON)
+# Predict EC numbers from a sequence (JSON)
 curl -X POST "http://localhost:18902/api/predict/ec" \
     -H "Content-Type: application/json" \
     -d '{"input_type": "sequence", "query": "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQ"}'
 
-# Using UniProt ID (JSON)
+# Use a UniProt accession (JSON)
 curl -X POST "http://localhost:18902/api/predict/ec" \
     -H "Content-Type: application/json" \
     -d '{"input_type": "uniprot", "query": "P12345"}'
 
-# Using FASTA content (JSON)
+# Use FASTA content (JSON)
 curl -X POST "http://localhost:18902/api/predict/ec" \
     -H "Content-Type: application/json" \
     -d '{"input_type": "fasta", "query": ">query\nMKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQ"}'
 ```
 
-## Directory Structure
+## Directory layout
 
 ```
 ecnumber_predict/
-├── main.py              # FastAPI app entry
+├── main.py              # FastAPI application
 ├── client.py            # API client
-├── requirements.txt     # dependencies
-├── README.md            # documentation
+├── requirements.txt     # Dependencies
+├── README.md            # Documentation
 ├── models/
 │   ├── __init__.py
-│   └── ecnumber_predictor.py  # EC number predictor model
+│   └── ecnumber_predictor.py  # EC prediction model
 └── tests/
     ├── __init__.py
-    └── test_api.py      # test cases
+    └── test_api.py      # Tests
 ```
 
 ## Port
 
 Default port: 18902
 
-## External Resources
+## External resources
 
 - GMM model file (gmm_ensumble.pkl)
 - Pretrained checkpoint (split100.pth)

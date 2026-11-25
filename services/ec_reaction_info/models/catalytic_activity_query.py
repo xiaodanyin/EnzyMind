@@ -2,6 +2,14 @@
 """Catalytic Activity Query Module."""
 
 import requests
+import sys
+from pathlib import Path
+
+root = str(Path(__file__).resolve().parents[3])
+if root not in sys.path:
+    sys.path.insert(0, root)
+from shared.uniprot import uniprot_json_client, UniProtDownloadError
+from shared.uniprot_sections import ec_numbers, reaction_smiles
 from typing import Dict, Any, List
 
 
@@ -12,43 +20,26 @@ class CatalyticActivityQuery:
         self.base_url = "https://rest.uniprot.org/uniprotkb"
         self.timeout = timeout
     
-    def get_catalytic_activities(self, uniprot_id: str) -> Dict[str, Any]:
-        url = f"{self.base_url}/{uniprot_id}.json"
-        
+    def get_catalytic_activities(self, uniprot_id: str, *, capability='catalytic_activity') -> Dict[str, Any]:
         try:
-            response = requests.get(url, timeout=self.timeout)
-            
-            if response.status_code == 404:
-                return {
-                    "success": False,
-                    "uniprot_id": uniprot_id,
-                    "error": f"UniProt ID '{uniprot_id}' not found",
-                    "activities": [],
-                    "markdown": None
-                }
-            
-            if response.status_code != 200:
-                return {
-                    "success": False,
-                    "uniprot_id": uniprot_id,
-                    "error": f"Failed to fetch data: HTTP {response.status_code}",
-                    "activities": [],
-                    "markdown": None
-                }
-            
-            data = response.json()
+            data = uniprot_json_client.fetch_json(uniprot_id, capability=capability)
             activities = self._extract_catalytic_activities(data)
+            numbers = ec_numbers(data)
             markdown = self._generate_markdown(uniprot_id, activities)
+            if numbers and not activities:
+                markdown = f"Annotated EC numbers for `{uniprot_id}`: " + ", ".join(numbers) + ". No reaction description is available in this record."
             
             return {
-                "success": True,
+                "success": True, "source": data.get("enzymindSource"),
                 "uniprot_id": uniprot_id,
-                "activities": activities,
+                "activities": activities, "ec_numbers": numbers,
                 "count": len(activities),
                 "markdown": markdown,
                 "error": None
             }
             
+        except UniProtDownloadError as exc:
+            return {"success": False, "uniprot_id": uniprot_id, "error": str(exc), "activities": [], "markdown": None}
         except requests.exceptions.Timeout:
             return {
                 "success": False,
@@ -68,6 +59,7 @@ class CatalyticActivityQuery:
     
     def _extract_catalytic_activities(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
         activities = []
+        smiles = reaction_smiles(data)
         
         for comment in data.get('comments', []):
             if comment.get('commentType') == "CATALYTIC ACTIVITY":
@@ -93,6 +85,7 @@ class CatalyticActivityQuery:
                         if ev_code:
                             activity["evidence"].append(ev_code)
                     
+                    activity["reaction_smiles"] = smiles.get(activity["rhea_id"])
                     activities.append(activity)
         
         return activities

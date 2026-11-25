@@ -5,6 +5,7 @@ Substrate Predictor Model
 import os
 import glob
 import subprocess
+import sys
 import pickle
 from typing import Tuple
 from rdkit import Chem
@@ -369,7 +370,7 @@ class SubstratePredictor:
         fasta_path = os.path.join(fasta_dir, f"{uniprot_id}.fasta")
         
         command = [
-            "python", self.esm_script_path, esm_type,
+            sys.executable, self.esm_script_path, esm_type,
             fasta_path, self.esm_out_dir, "--include", "mean"
         ]
         subprocess.run(command, check=True)

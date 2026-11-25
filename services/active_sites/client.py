@@ -9,12 +9,16 @@ Supports three input types: UniProt ID, Amino Acid Sequence, PDB Structure.
 import requests
 import time
 from typing import Optional, Dict, Any
+try:
+    from .models.easifa_access import load_owner_key, SESSION_HEADER
+except ImportError:  # Also support the documented service-local `from client import ...`.
+    from models.easifa_access import load_owner_key, SESSION_HEADER
 
 
 class ActiveSitesClient:
     """Client for the Active Sites Prediction Service."""
     
-    def __init__(self, base_url: str = "http://localhost:18907"):
+    def __init__(self, base_url: str = "http://localhost:18907", *, session_key=None, session_file=None):
         """
         Initialize the client.
         
@@ -22,6 +26,12 @@ class ActiveSitesClient:
             base_url: Base URL of the active sites service
         """
         self.base_url = base_url.rstrip("/")
+        self._owner_key = load_owner_key((self.base_url,), session_key=session_key, session_file=session_file)
+
+    def _request(self, request_func, *args, **kwargs):
+        headers = requests.structures.CaseInsensitiveDict(kwargs.pop("headers", None) or {})
+        headers[SESSION_HEADER] = self._owner_key
+        return request_func(*args, headers=headers, allow_redirects=False, **kwargs)
     
     def health_check(self) -> dict:
         """
@@ -30,7 +40,7 @@ class ActiveSitesClient:
         Returns:
             Health status dict
         """
-        response = requests.get(f"{self.base_url}/health")
+        response = self._request(requests.get, f"{self.base_url}/health")
         response.raise_for_status()
         return response.json()
     
@@ -47,7 +57,7 @@ class ActiveSitesClient:
         Returns:
             Task submission result with job_id
         """
-        response = requests.post(
+        response = self._request(requests.post,
             f"{self.base_url}/api/predict/active-sites/submit/uniprot",
             json={"uniprot_id": uniprot_id, "use_celery": use_celery},
             timeout=60
@@ -70,7 +80,7 @@ class ActiveSitesClient:
         Returns:
             Task submission result with job_id
         """
-        response = requests.post(
+        response = self._request(requests.post,
             f"{self.base_url}/api/predict/active-sites/submit/sequence",
             json={
                 "aa_sequence": aa_sequence,
@@ -102,7 +112,7 @@ class ActiveSitesClient:
         if rxn_smiles:
             data["rxn_smiles"] = rxn_smiles
             
-        response = requests.post(
+        response = self._request(requests.post,
             f"{self.base_url}/api/predict/active-sites/submit/sequence/form",
             data=data,
             timeout=60
@@ -131,7 +141,7 @@ class ActiveSitesClient:
             if rxn_smiles:
                 data["rxn_smiles"] = rxn_smiles
             
-            response = requests.post(
+            response = self._request(requests.post,
                 f"{self.base_url}/api/predict/active-sites/submit/structure",
                 files=files,
                 data=data,
@@ -152,7 +162,7 @@ class ActiveSitesClient:
         Returns:
             Job status information
         """
-        response = requests.get(
+        response = self._request(requests.get,
             f"{self.base_url}/api/predict/active-sites/job/{job_id}",
             timeout=30
         )
@@ -169,7 +179,7 @@ class ActiveSitesClient:
         Returns:
             Job results if completed
         """
-        response = requests.get(
+        response = self._request(requests.get,
             f"{self.base_url}/api/predict/active-sites/results/{job_id}",
             timeout=60
         )
@@ -200,7 +210,7 @@ class ActiveSitesClient:
         if rxn_smiles:
             data["rxn_smiles"] = rxn_smiles
             
-        response = requests.post(
+        response = self._request(requests.post,
             f"{self.base_url}/api/predict/active-sites/auto",
             data=data,
             timeout=60
@@ -224,7 +234,7 @@ class ActiveSitesClient:
         Returns:
             Active sites prediction result as markdown table
         """
-        response = requests.post(
+        response = self._request(requests.post,
             f"{self.base_url}/api/predict/active-sites",
             json={"uniprot_id": uniprot_id, "use_celery": use_celery},
             timeout=700  # Long timeout for sync operation
@@ -254,7 +264,7 @@ class ActiveSitesClient:
         if rxn_smiles:
             data["rxn_smiles"] = rxn_smiles
             
-        response = requests.post(
+        response = self._request(requests.post,
             f"{self.base_url}/api/predict/active-sites/sequence",
             data=data,
             timeout=timeout + 30
@@ -285,7 +295,7 @@ class ActiveSitesClient:
             if rxn_smiles:
                 data["rxn_smiles"] = rxn_smiles
             
-            response = requests.post(
+            response = self._request(requests.post,
                 f"{self.base_url}/api/predict/active-sites/structure",
                 files=files,
                 data=data,

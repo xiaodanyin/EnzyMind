@@ -1,34 +1,34 @@
-# Enzyme Check Service - Enzyme Annotation Microservice
+# Enzyme Check Service
 
 ## Overview
 
-The Enzyme Check Service determines whether a protein is annotated as an enzyme by querying catalytic activity information from the UniProt database.
+This service checks whether a protein is annotated as an enzyme using catalytic-activity and EC annotations from UniProt.
 
 ## Port
 
 - **Service port**: 18914
 
-## API Endpoints
+## API endpoints
 
 | Endpoint | Method | Description |
-|----------|--------|-------------|
+|------|------|------|
 | `/health` | GET | Health check |
-| `/api/check/enzyme` | POST | Enzyme check (JSON) |
-| `/api/check/enzyme/form` | POST | Enzyme check (form) |
-| `/api/check/enzyme/batch` | POST | Batch enzyme check |
-| `/check/enzyme` | POST | Legacy-compatible API |
+| `/api/check/enzyme` | POST | Enzyme annotation check (JSON) |
+| `/api/check/enzyme/form` | POST | Enzyme annotation check (form) |
+| `/api/check/enzyme/batch` | POST | Batch checks |
+| `/check/enzyme` | POST | Legacy API compatibility |
 
 ## Installation
 
 ```bash
-cd /path/to/Enzymind/services/enzyme_check
+cd /path/to/EnzyMind/services/enzyme_check
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 python main.py
 ```
 
-## Usage Examples
+## Examples
 
 ### Health check
 
@@ -36,7 +36,7 @@ python main.py
 curl http://localhost:18914/health
 ```
 
-### Check a single protein
+### Check one protein
 
 ```bash
 curl -X POST http://localhost:18914/api/check/enzyme \
@@ -55,7 +55,7 @@ Response:
 }
 ```
 
-### Batch check
+### Batch checks
 
 ```bash
 curl -X POST http://localhost:18914/api/check/enzyme/batch \
@@ -63,7 +63,7 @@ curl -X POST http://localhost:18914/api/check/enzyme/batch \
   -d '{"queries": ["P12345", "P00533"]}'
 ```
 
-## API Docs
+## API documentation
 
 - **Swagger UI**: http://localhost:18914/docs
 - **ReDoc**: http://localhost:18914/redoc

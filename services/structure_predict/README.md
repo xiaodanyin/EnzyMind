@@ -13,6 +13,20 @@ Protein structure prediction microservice for EnzyMind platform. This service us
 
 ## Port
 
+### Runtime behavior
+
+`/health` uses the readiness result cached at startup; it does not launch containers.
+`/api/config` explicitly refreshes the Docker/GPU diagnostic using the configured ESMFold image.
+Inference runs outside the HTTP event loop, so health checks remain responsive.
+One prediction runs at a time; concurrent submissions get a clear busy error.
+Each request gets a unique output filename and directory to keep saved coordinates immutable.
+
+CUDA's JIT cache is persisted in `files/esmfold_cuda_cache/` (override with
+`ESMFOLD_CUDA_CACHE_DIR`). This matters on GPUs requiring runtime compilation of
+the image's kernels. See [NVIDIA's JIT caching documentation](https://developer.nvidia.com/blog/cuda-pro-tip-understand-fat-binaries-jit-caching/).
+The first run can take longer than five minutes. Gateway and frontend timeouts
+cover the default `ESMFOLD_TIMEOUT=3600`; an external reverse proxy must do the same.
+
 This service runs on port **18906**.
 
 ## Prerequisites
@@ -95,24 +109,14 @@ uvicorn main:app --reload --port 18906
 # Production
 uvicorn main:app --host 0.0.0.0 --port 18906
 
-# or 
-python main.py \ 
-    --docker-image biochunan/esmfold-image:nonroot-runtime \ 
-    --model-cache-dir /path/to/esmfold_state \    # absolute path
-    --static-pdb-dir /path/to/Enzymind/files/pdb \ # absolute path
-    --use-gpu true \ 
-    --timeout 3600 \ 
-    --host 0.0.0.0 \ 
-    --port 18906
-
-# my example
-python main.py \ 
-    --docker-image biochunan/esmfold-image:nonroot-runtime \ 
-    --model-cache-dir /home/xiaoruiwang/backup_data/ubuntu_data/protein_work/protein-model-weights/esm-model-weights \ 
-    --static-pdb-dir /home/xiaoruiwang/backup_data/ubuntu_data/protein_work/Enzymind/files/pdb \ 
-    --use-gpu true \ 
-    --timeout 3600 \ 
-    --host 0.0.0.0 \ 
+# Alternatively, supply explicit paths from the service directory.
+python main.py \
+    --docker-image biochunan/esmfold-image:nonroot-runtime \
+    --model-cache-dir /path/to/esmfold_state \
+    --static-pdb-dir /path/to/EnzyMind/files/pdb \
+    --use-gpu true \
+    --timeout 3600 \
+    --host 0.0.0.0 \
     --port 18906
 ```
 
@@ -217,8 +221,7 @@ Content-Type: application/json
 
 **Response:** Directly returns PDB file as downloadable attachment.
 
-This endpoint combines prediction and download into a single request - perfect for one-click workflows.
-```
+This endpoint combines prediction and download into a single request.
 
 ### Predict Structure (Form)
 
@@ -276,7 +279,7 @@ input_type=sequence
 query=MKFLILLFNILCLFPVLAADNHGVGPQGASGVDPITFDINSNQTGVQLTLPLR
 ```
 
-Backward compatible with original enzyme_agent API.
+Backward compatible with the original structure-prediction API.
 
 **Response Example (Success):**
 ```json
@@ -327,7 +330,7 @@ if result.get("success"):
 
 ## cURL Examples
 
-### Basic Requests
+### Basic requests
 
 ```bash
 # Health check
@@ -339,71 +342,71 @@ curl -X GET "http://localhost:18906/api/config"
 # Response: {"configured":true,"issues":[],"output_dir":"/tmp/esmfold_output","docker_image":"biochunan/esmfold-image:nonroot-runtime",...}
 ```
 
-### Structure Prediction
+### Structure prediction
 
 ```bash
-# Predict structure (JSON input, auto-detect type) - return JSON result
+# Predict a structure (JSON, automatic input detection)
 curl -X POST "http://localhost:18906/api/predict/structure" \
     -H "Content-Type: application/json" \
     -d '{"query": "MKFLILLFNILCLFPVLAADNHGVGPQGASGVDPITFDINSNQTGVQLTLPLR", "input_type": "auto", "output_name": "my_protein"}'
 # Response: {"success":true,"pdb_path":"/tmp/esmfold_output/my_protein.pdb","static_path":"/static/pdb/my_protein.pdb","sequence":"MKFLILLFNILCLFPVLAADNHGVGPQGASGVDPITFDINSNQTGVQLTLPLR","sequence_length":52,"error":null}
 
-# ⭐ One-click predict + download PDB file (Recommended)
+# Predict and download the PDB file in one request
 curl -X POST "http://localhost:18906/api/predict/structure/download" \
     -H "Content-Type: application/json" \
     -d '{"query": "MKFLILLFNILCLFPVLAADNHGVGPQGASGVDPITFDINSNQTGVQLTLPLR", "input_type": "auto", "output_name": "my_protein"}' \
     -o my_protein.pdb
-# Directly download PDB file to my_protein.pdb
+# Download the PDB directly to my_protein.pdb
 
-# Predict structure (JSON input, specify as sequence)
+# Predict a structure from an explicit sequence (JSON)
 curl -X POST "http://localhost:18906/api/predict/structure" \
     -H "Content-Type: application/json" \
     -d '{"query": "MKFLILLFNILCLFPVLAADNHGVGPQGASGVDPITFDINSNQTGVQLTLPLR", "input_type": "sequence"}'
 
-# Predict structure (JSON input, UniProt ID)
+# Predict a structure from a UniProt accession (JSON)
 curl -X POST "http://localhost:18906/api/predict/structure" \
     -H "Content-Type: application/json" \
     -d '{"query": "P12345", "input_type": "uniprot"}'
 
-# Predict structure (Form input)
+# Predict a structure (form input)
 curl -X POST "http://localhost:18906/api/predict/structure/form" \
     -F "query=MKFLILLFNILCLFPVLAADNHGVGPQGASGVDPITFDINSNQTGVQLTLPLR" \
     -F "input_type=auto" \
     -F "output_name=my_protein"
 
-# Predict structure (Upload FASTA file)
+# Predict a structure (FASTA upload)
 curl -X POST "http://localhost:18906/api/predict/structure/file" \
     -F "file=@protein.fasta" \
     -F "output_name=my_protein"
 ```
 
-### Sequence Processing
+### Sequence processing
 
 ```bash
-# Process sequence (validate and clean, no prediction)
+# Validate and normalize a sequence without predicting a structure
 curl -X POST "http://localhost:18906/api/sequence/process" \
     -H "Content-Type: application/json" \
     -d '{"query": "MKFLILLFNILCLFPVLAADNHGVGPQGASGVDPITFDINSNQTGVQLTLPLR"}'
 # Response: {"success":true,"sequence":"MKFLILLFNILCLFPVLAADNHGVGPQGASGVDPITFDINSNQTGVQLTLPLR","sequence_length":52,"is_valid":true}
 ```
 
-### Legacy Endpoint
+### Legacy endpoint
 
 ```bash
-# Legacy endpoint (Form input)
+# Legacy endpoint (form input)
 curl -X POST "http://localhost:18906/predict/structure" \
     -F "input_type=sequence" \
     -F "query=MKFLILLFNILCLFPVLAADNHGVGPQGASGVDPITFDINSNQTGVQLTLPLR"
 # Response: {"result":"/static/pdb/query.pdb"}
 ```
 
-### Download Results
+### Download results
 
 ```bash
-# Download predicted PDB file
+# Download the predicted PDB file
 curl -O "http://localhost:18906/static/pdb/my_protein.pdb"
 
-# Or specify output filename
+# Or select a filename
 curl -o output.pdb "http://localhost:18906/static/pdb/my_protein.pdb"
 ```
 

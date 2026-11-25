@@ -1,11 +1,19 @@
 #!/bin/bash
 #
-# Enzymind 服务启动脚本
+# EnzyMind 服务启动脚本
 # 启动所有或指定的微服务
 #
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+ENZYMIND_RUNTIME_ENV="${ENZYMIND_ENV_FILE:-$PROJECT_DIR/.env.production}"
+if [ -f "$ENZYMIND_RUNTIME_ENV" ]; then
+    set -a
+    source "$ENZYMIND_RUNTIME_ENV" || exit 1
+    set +a
+fi
+# The Runner credential is exclusively for Gateway, never prediction/query workers.
+unset PYTHON_SANDBOX_TOKEN
 SERVICES_DIR="$PROJECT_DIR/services"
 PIDS_DIR="$PROJECT_DIR/.pids"
 
@@ -56,32 +64,36 @@ start_service() {
         return 1
     fi
     
-    # 检查端口是否已占用
+    local health_method=GET
+    [ "$service" = "query_mechanism_mcsa" ] && health_method=POST
+    # Existing healthy services are already started, not failures.
     if lsof -Pi :$port -sTCP:LISTEN -t >/dev/null 2>&1; then
-        echo -e "  ${YELLOW}⚠${NC} $service: 端口 $port 已被占用"
+        python3 "$SCRIPT_DIR/service_process.py" adopt "$service" "$service_dir" "$port" "$PIDS_DIR/${service}.pid" || return 1
+        if curl --noproxy '*' -fsS --max-time 15 -X "$health_method" "http://127.0.0.1:$port/health" >/dev/null; then
+            echo -e "  ${GREEN}✓${NC} $service: 已就绪 (端口 $port)"
+            return 0
+        fi
+        echo -e "  ${RED}✗${NC} $service: 端口 $port 已占用但健康检查失败"
         return 1
     fi
     
     cd "$service_dir"
-    source venv/bin/activate
-    
-    # 启动服务
-    nohup python main.py > "$PIDS_DIR/${service}.log" 2>&1 &
+    # Invoke the current interpreter directly: activate can contain stale paths
+    # after the repository/virtual environments have been moved.
+    nohup setsid "$service_dir/venv/bin/python" -u main.py </dev/null > "$PIDS_DIR/${service}.log" 2>&1 &
     local pid=$!
     echo $pid > "$PIDS_DIR/${service}.pid"
     
-    deactivate
-    
-    sleep 1
-    
-    # 验证服务是否启动成功
-    if kill -0 $pid 2>/dev/null; then
-        echo -e "  ${GREEN}✓${NC} $service (端口 $port, PID $pid)"
-        return 0
-    else
-        echo -e "  ${RED}✗${NC} $service: 启动失败"
-        return 1
-    fi
+    local deadline=$((SECONDS + ${ENZYMIND_START_TIMEOUT:-60}))
+    while kill -0 "$pid" 2>/dev/null && [ "$SECONDS" -lt "$deadline" ]; do
+        if curl --noproxy '*' -fsS --max-time 15 -X "$health_method" "http://127.0.0.1:$port/health" >/dev/null 2>&1; then
+            echo -e "  ${GREEN}✓${NC} $service 已就绪 (端口 $port, PID $pid)"
+            return 0
+        fi
+        sleep 1
+    done
+    echo -e "  ${RED}✗${NC} $service: 未就绪；查看 $PIDS_DIR/${service}.log"
+    return 1
 }
 
 show_usage() {
@@ -97,7 +109,7 @@ show_usage() {
 }
 
 echo -e "${BLUE}╔═══════════════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║           Enzymind 微服务启动脚本                          ║${NC}"
+echo -e "${BLUE}║           EnzyMind 微服务启动脚本                          ║${NC}"
 echo -e "${BLUE}╚═══════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
@@ -115,6 +127,7 @@ if [ -n "$1" ]; then
     fi
     echo -e "${YELLOW}启动服务: $1${NC}"
     start_service "$1"
+    exit $?
 else
     # 启动所有服务
     echo -e "${YELLOW}启动所有服务...${NC}"
@@ -134,6 +147,7 @@ else
     echo ""
     echo -e "${GREEN}成功启动: $SUCCESS${NC}"
     echo -e "${RED}启动失败: $FAIL${NC}"
+    [ "$FAIL" -eq 0 ] || exit 1
 fi
 
 echo ""

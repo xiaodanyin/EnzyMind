@@ -2,25 +2,25 @@
 
 ## Overview
 
-This service determines whether a given protein sequence is an enzyme. It uses the ESM2 protein language model to extract sequence features and a trained MLP classifier for prediction.
+This service predicts whether a protein is an enzyme. It extracts sequence features with ESM-2 and applies a trained MLP classifier.
 
 ## Features
 
 - Supported input formats:
   - Amino acid sequence string
-  - UniProt ID (sequence fetched automatically from UniProt)
+  - UniProt accession (resolved through the shared UniProt client)
   - FASTA file upload
-  - FASTA-formatted content
+  - FASTA content
 
-## API Endpoints
+## API endpoints
 
 ### POST /api/recognize/enzyme
 
-Enzyme recognition prediction.
+Enzyme recognition endpoint.
 
 **Parameters:**
-- `input_type` (required): one of `fasta`, `sequence`, `uniprot`
-- `query` (optional): amino acid sequence or UniProt ID
+- `input_type` (required): Input type: `fasta`, `sequence`, or `uniprot`
+- `query` (optional): Query string (amino acid sequence or UniProt accession)
 - `file` (optional): FASTA file upload
 
 **Response:**
@@ -35,11 +35,11 @@ Enzyme recognition prediction.
 
 ### GET /health
 
-Health check.
+Health check endpoint.
 
 ### GET /
 
-Service info.
+Service information endpoint.
 
 ## Installation
 
@@ -47,16 +47,16 @@ Service info.
 cd services/enzy_recognize
 python -m venv venv
 source venv/bin/activate  # Linux/Mac
-# or venv\Scripts\activate  # Windows
+# Or venv\Scripts\activate  # Windows
 pip install -r requirements.txt
 ```
 
 
-## Run
+## Running
 
 ```bash
 python main.py
-# or
+# Or
 uvicorn main:app --host 0.0.0.0 --port 18901 --reload
 ```
 
@@ -75,46 +75,46 @@ from client import EnzymeRecognitionClient
 
 client = EnzymeRecognitionClient(base_url="http://localhost:18901")
 
-# Recognize a sequence
+# Classify a sequence
 result = client.recognize_sequence("MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQ")
 print(f"Is enzyme: {result['result']['is_enzyme']}")
 print(f"Confidence: {result['result']['confidence']}")
 
-# Using UniProt ID
+# Use a UniProt accession
 result = client.recognize_uniprot("P12345")
 
-# Upload FASTA file
+# Upload a FASTA file
 result = client.recognize_fasta("/path/to/sequence.fasta")
 ```
 
 ### curl
 
 ```bash
-# Recognize a sequence
+# Classify a sequence
 curl -X POST "http://localhost:8080/api/recognize/enzyme" \
     -H "Content-Type: application/json" \
     -d '{"input_type": "sequence", "query": "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQ"}'
 
-# Using UniProt ID
+# Use a UniProt accession
 curl -X POST "http://localhost:8080/api/recognize/enzyme" \
     -H "Content-Type: application/json" \
     -d '{"input_type": "uniprot", "query": "P12345"}'
 ```
 
-## Directory Structure
+## Directory layout
 
 ```
 enzy_recognize/
-├── main.py              # FastAPI app entry
+├── main.py              # FastAPI application
 ├── client.py            # API client
-├── requirements.txt     # dependencies
-├── README.md            # documentation
+├── requirements.txt     # Dependencies
+├── README.md            # Documentation
 ├── models/
 │   ├── __init__.py
-│   └── enzyme_predictor.py  # enzyme predictor model
+│   └── enzyme_predictor.py  # Enzyme recognition model
 └── tests/
     ├── __init__.py
-    └── test_api.py      # test cases
+    └── test_api.py      # Tests
 ```
 
 ## Port

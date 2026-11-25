@@ -5,7 +5,7 @@ FastAPI-based microservice for querying enzyme mechanism data from M-CSA databas
 All endpoints accept JSON request body for LLM function call integration.
 
 Usage:
-    uvicorn main:app --reload --host 0.0.0.0 --port 8000
+    uvicorn main:app --reload --host 0.0.0.0 --port 18919
 """
 
 from typing import Any, Dict, List, Optional, Union
@@ -25,13 +25,14 @@ app = FastAPI(
     description="""
     A microservice for querying enzyme catalytic mechanism data from the M-CSA database.
     
-    ## 设计原则
-    **所有端点均使用 POST 方法，通过 JSON body 传递参数**，便于与大语言模型的 Function Call 功能集成。
+    ## Design Principles
+    **All endpoints use POST method with JSON body parameters**, facilitating integration with LLM Function Call capabilities.
     
     ## Features
     - Query by MCSA ID, UniProt ID, or PDB ID
-    - Get comprehensive enzyme information including active sites, reactions, and mechanisms
-    - **细粒度查询**: 单独获取反应、活性位点、机理概括、机理步骤
+    - Get comprehensive enzyme information including active sites, reactions, mechanisms, and cofactors
+    - **Fine-grained queries**: Retrieve reactions, active sites, mechanism summary, mechanism steps, or cofactors individually
+    - **Electron flow queries**: Retrieve detailed electron movement information for each mechanism step
     - Search enzymes by name
     - List all enzymes with pagination
     
@@ -40,7 +41,7 @@ app = FastAPI(
     - **UniProt ID**: Standard format (e.g., `P56868`, `P62593`)
     - **PDB ID**: 4-character code (e.g., `1b73`, `2FQX`)
     """,
-    version="2.0.0",
+    version="2.2.0",
     contact={
         "name": "M-CSA Query Service",
     },
@@ -91,6 +92,10 @@ class ReactionQueryRequest(BaseModel):
         description="Identifier to search for (MCSA ID, UniProt ID, or PDB ID)",
         examples=["P56868", "1", "1b73"]
     )
+    include_smiles: bool = Field(
+        default=False,
+        description="Whether to include SMILES strings for compounds in the response"
+    )
 
 
 class ActiveSitesQueryRequest(BaseModel):
@@ -104,6 +109,23 @@ class ActiveSitesQueryRequest(BaseModel):
         default=ActiveSiteView.BOTH,
         description="Perspective for active sites: 'uniprot', 'pdb', or 'both'"
     )
+    include_sequence: bool = Field(
+        default=False,
+        description="Whether to include the protein sequence in the response"
+    )
+
+
+class CofactorsQueryRequest(BaseModel):
+    """Request model for cofactors query."""
+    query_id: str = Field(
+        ...,
+        description="Identifier to search for (MCSA ID, UniProt ID, or PDB ID)",
+        examples=["P56868", "1", "1b73"]
+    )
+    include_smiles: bool = Field(
+        default=False,
+        description="Whether to include SMILES strings for cofactors in the response"
+    )
 
 
 class MechanismQueryRequest(BaseModel):
@@ -116,6 +138,27 @@ class MechanismQueryRequest(BaseModel):
     include_steps: bool = Field(
         default=True,
         description="Whether to include detailed mechanism steps"
+    )
+
+
+class ElectronFlowQueryRequest(BaseModel):
+    """Request model for electron flow query."""
+    query_id: str = Field(
+        ...,
+        description="Identifier to search for (MCSA ID, UniProt ID, or PDB ID)",
+        examples=["P56868", "1", "1b73"]
+    )
+    mechanism_id: Optional[int] = Field(
+        default=None,
+        description="Optional mechanism ID to filter by specific mechanism (useful when enzyme has multiple mechanisms)"
+    )
+    step_index: Optional[int] = Field(
+        default=None,
+        description="Optional step index to retrieve specific step (0=reactant, 1=step1, 2=step2, etc.)"
+    )
+    include_cxsmiles: bool = Field(
+        default=False,
+        description="Whether to include CXSMILES strings for each step"
     )
 
 
@@ -171,6 +214,7 @@ class ActiveSiteUniProt(BaseModel):
     is_reference: bool
     roles: List[str]
     roles_summary: Optional[str] = None
+    main_annotation: Optional[str] = None
 
 
 class ActiveSitePDB(BaseModel):
@@ -185,6 +229,7 @@ class ActiveSitePDB(BaseModel):
     domain_cath_id: Optional[str] = None
     roles: List[str]
     roles_summary: Optional[str] = None
+    main_annotation: Optional[str] = None
 
 
 class Compound(BaseModel):
@@ -192,6 +237,7 @@ class Compound(BaseModel):
     name: str
     count: int = 1
     chebi_id: Optional[str] = None
+    smiles: Optional[str] = None
 
 
 class ReactionInfo(BaseModel):
@@ -219,6 +265,27 @@ class MechanismInfo(BaseModel):
     components_summary: Optional[str] = None
     steps: List[MechanismStep] = []
     mechanisms: Optional[List[dict]] = None  # For multiple mechanisms
+    references: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class CofactorRoleInfo(BaseModel):
+    """Cofactor role information."""
+    role: str
+    role_type: Optional[str] = None
+    role_group: Optional[str] = None
+
+
+class CofactorInfo(BaseModel):
+    """Cofactor information."""
+    pdb_code: str
+    name: Optional[str] = None
+    chebi_id: Optional[str] = None
+    kegg_compound: Optional[str] = None
+    uniprot_id: Optional[str] = None
+    pdb_id: Optional[str] = None
+    ec: Optional[str] = None
+    roles: List[CofactorRoleInfo] = []
+    smiles: Optional[str] = None
 
 
 class EnzymeInfoResponse(BaseModel):
@@ -230,6 +297,8 @@ class EnzymeInfoResponse(BaseModel):
     active_sites_pdb: List[ActiveSitePDB] = []
     reaction: Optional[ReactionInfo] = None
     mechanism: Optional[MechanismInfo] = None
+    cofactors: List[CofactorInfo] = []
+    sequence_info: Optional[Dict[str, Any]] = None
 
 
 class ReactionResponse(BaseModel):
@@ -252,6 +321,7 @@ class ActiveSitesResponse(BaseModel):
     view: str = "both"
     active_sites_uniprot: Optional[List[ActiveSiteUniProt]] = None
     active_sites_pdb: Optional[List[ActiveSitePDB]] = None
+    sequence: Optional[str] = None
 
 
 class MechanismSummaryResponse(BaseModel):
@@ -278,6 +348,82 @@ class MechanismStepsResponse(BaseModel):
     steps: List[MechanismStep] = []
 
 
+class ElectronFlowSource(BaseModel):
+    """Electron flow source information."""
+    type: str = Field(description="Source type: 'atom', 'bond', or 'lone_pair'")
+    description_cxsmiles: Optional[str] = Field(None, description="Human-readable description with CXSMILES indices")
+    cxsmiles_index: Optional[int] = Field(None, description="Atom index in CXSMILES (for atom type)")
+    element: Optional[str] = Field(None, description="Element symbol")
+    
+    class Config:
+        extra = "allow"  # Allow additional fields for different source types
+
+
+class ElectronFlowTarget(BaseModel):
+    """Electron flow target information."""
+    type: str = Field(description="Target type: 'atom', 'atom_pair', or 'bond'")
+    description_cxsmiles: Optional[str] = Field(None, description="Human-readable description with CXSMILES indices")
+    
+    class Config:
+        extra = "allow"  # Allow additional fields for different target types
+
+
+class ElectronFlow(BaseModel):
+    """Single electron flow in a mechanism step."""
+    index: int = Field(description="Index of this electron flow within the step")
+    electron_count: int = Field(description="Number of electrons transferred (1 for single, 2 for pair)")
+    arrow_type: str = Field(description="Arrow type: 'electron_pair' or 'single_electron'")
+    arrow_type_cn: Optional[str] = Field(None, description="Arrow type description in Chinese")
+    source: dict = Field(description="Source of electron flow (atom, bond, or lone pair)")
+    target: dict = Field(description="Target of electron flow (atom or atom pair for new bond)")
+
+
+class ParsedMechanismStep(BaseModel):
+    """Parsed mechanism step with electron flow information."""
+    step_index: int = Field(description="Step index (0=reactant, 1=step1, etc.)")
+    role: str = Field(description="Role of this step: 'reactant', 'intermediate', or 'product'")
+    description: Optional[str] = Field(None, description="Step description text")
+    mechanism_id: int = Field(description="Mechanism ID this step belongs to")
+    processing_status: str = Field(default="success", description="Processing status: 'success', 'warning', or 'error'. If not 'success', electron_flows may be empty or incomplete.")
+    status_message: Optional[str] = Field(None, description="Status message explaining why data conversion failed (only present when processing_status is not 'success')")
+    electron_flows: List[dict] = Field(default=[], description="List of electron flows in this step")
+    involved_residues: List[str] = Field(default=[], description="List of catalytic residues involved in this step")
+    cxsmiles: Optional[str] = Field(None, description="CXSMILES string representing the molecular structure")
+    alignment_match_rate: Optional[float] = Field(None, description="Atom alignment quality score (0-1)")
+    alignment_warnings: Optional[str] = Field(None, description="Warnings from atom alignment process")
+
+
+class ElectronFlowResponse(BaseModel):
+    """Response for electron flow query."""
+    found: bool = True
+    message: str = "Query successful"
+    query_id: str
+    enzyme_name: Optional[str] = None
+    mcsa_id: Optional[int] = None
+    total_steps: int = 0
+    steps: List[ParsedMechanismStep] = []
+
+
+class MechanismSummaryInfo(BaseModel):
+    """Summary info for a single mechanism."""
+    mechanism_id: int
+    step_count: int
+    steps_with_electron_flows: int
+    involved_residues: List[str] = []
+
+
+class ElectronFlowSummaryResponse(BaseModel):
+    """Response for electron flow summary query."""
+    found: bool = True
+    message: str = "Query successful"
+    query_id: str
+    enzyme_name: Optional[str] = None
+    mcsa_id: Optional[int] = None
+    mechanism_count: int = 0
+    all_involved_residues: List[str] = []
+    mechanisms: List[MechanismSummaryInfo] = []
+
+
 class EnzymeListItem(BaseModel):
     """Brief enzyme info for list responses."""
     mcsa_id: int
@@ -301,6 +447,16 @@ class IdentifiersResponse(BaseModel):
     query_id: str
     mcsa_id: Optional[int] = None
     identifiers: Dict[str, List[str]] = {}
+
+
+class CofactorsResponse(BaseModel):
+    """Response for cofactors query."""
+    found: bool = True
+    message: str = "Query successful"
+    query_id: str
+    enzyme_name: Optional[str] = None
+    mcsa_id: Optional[int] = None
+    cofactors: List[CofactorInfo] = []
 
 
 class ErrorResponse(BaseModel):
@@ -331,13 +487,16 @@ async def root():
         success=True,
         message="M-CSA Enzyme Query Service is running",
         data={
-            "version": "2.0.0",
+            "version": "2.2.0",
             "endpoints": {
                 "query_full": "/api/enzyme/query",
                 "query_reaction": "/api/enzyme/reaction",
                 "query_active_sites": "/api/enzyme/active_sites",
                 "query_mechanism_summary": "/api/enzyme/mechanism/summary",
                 "query_mechanism_steps": "/api/enzyme/mechanism/steps",
+                "query_electron_flows": "/api/enzyme/mechanism/electron_flows",
+                "query_electron_flows_summary": "/api/enzyme/mechanism/electron_flows/summary",
+                "query_cofactors": "/api/enzyme/cofactors",
                 "search": "/api/enzyme/search",
                 "list": "/api/enzyme/list",
                 "identifiers": "/api/enzyme/identifiers"
@@ -381,7 +540,7 @@ async def query_enzyme(request: QueryRequest):
     }
     ```
     """
-    result = retriever.get_enzyme_info(request.query_id)
+    result = retriever.get_enzyme_info(request.query_id, include_smiles=True, include_visualization=True)
     
     if result is None:
         return EnzymeInfoResponse(
@@ -407,7 +566,8 @@ async def query_reaction(request: ReactionQueryRequest):
     **Request Body:**
     ```json
     {
-        "query_id": "P56868"
+        "query_id": "P56868",
+        "include_smiles": false
     }
     ```
     
@@ -415,8 +575,9 @@ async def query_reaction(request: ReactionQueryRequest):
     - EC number
     - Reactants list with names and ChEBI IDs
     - Products list with names and ChEBI IDs
+    - SMILES strings (if include_smiles is true)
     """
-    result = retriever.get_enzyme_info(request.query_id)
+    result = retriever.get_enzyme_info(request.query_id, include_smiles=request.include_smiles)
     
     if result is None:
         return ReactionResponse(
@@ -434,7 +595,8 @@ async def query_reaction(request: ReactionQueryRequest):
     else:
         reactants_count = len(reaction.get("reactants", []))
         products_count = len(reaction.get("products", []))
-        message = f"Successfully retrieved reaction information for enzyme '{enzyme_name}': includes {reactants_count} reactants and {products_count} products."
+        smiles_info = " (with SMILES)" if request.include_smiles else ""
+        message = f"Successfully retrieved reaction information for enzyme '{enzyme_name}': includes {reactants_count} reactants and {products_count} products{smiles_info}."
     
     return ReactionResponse(
         found=True,
@@ -459,7 +621,8 @@ async def query_active_sites(request: ActiveSitesQueryRequest):
     ```json
     {
         "query_id": "P56868",
-        "view": "both"
+        "view": "both",
+        "include_sequence": false
     }
     ```
     
@@ -472,6 +635,7 @@ async def query_active_sites(request: ActiveSitesQueryRequest):
     - Residue code (amino acid type, e.g., "Asp", "Cys")
     - Residue position number
     - Functional roles (e.g., "proton donor", "nucleophile")
+    - Protein sequence (if include_sequence is true)
     """
     result = retriever.get_enzyme_info(request.query_id)
     
@@ -492,17 +656,25 @@ async def query_active_sites(request: ActiveSitesQueryRequest):
     
     if request.view in [ActiveSiteView.UNIPROT, ActiveSiteView.BOTH]:
         active_sites_uniprot = result.get("active_sites_uniprot", [])
-        site_counts.append(f"UniProt视角: {len(active_sites_uniprot)} 个残基")
+        site_counts.append(f"UniProt view: {len(active_sites_uniprot)} residues")
     
     if request.view in [ActiveSiteView.PDB, ActiveSiteView.BOTH]:
         active_sites_pdb = result.get("active_sites_pdb", [])
-        site_counts.append(f"PDB视角: {len(active_sites_pdb)} 个残基")
+        site_counts.append(f"PDB view: {len(active_sites_pdb)} residues")
+    
+    # Get sequence if requested
+    sequence = None
+    if request.include_sequence:
+        seq_result = retriever.get_sequence(request.query_id)
+        if seq_result:
+            sequence = seq_result.get("sequence")
     
     total_sites = len(active_sites_uniprot or []) + len(active_sites_pdb or [])
     if total_sites == 0:
         message = f"Found enzyme '{enzyme_name}' (MCSA ID: {mcsa_id}), but no active site information is recorded."
     else:
-        message = f"Successfully retrieved active site information for enzyme '{enzyme_name}' ({', '.join(site_counts)})."
+        seq_info = " (with sequence)" if sequence else ""
+        message = f"Successfully retrieved active site information for enzyme '{enzyme_name}' ({', '.join(site_counts)}){seq_info}."
     
     return ActiveSitesResponse(
         found=True,
@@ -512,7 +684,8 @@ async def query_active_sites(request: ActiveSitesQueryRequest):
         mcsa_id=mcsa_id,
         view=request.view.value,
         active_sites_uniprot=active_sites_uniprot,
-        active_sites_pdb=active_sites_pdb
+        active_sites_pdb=active_sites_pdb,
+        sequence=sequence
     )
 
 
@@ -620,6 +793,219 @@ async def query_mechanism_steps(request: QueryRequest):
         mcsa_id=mcsa_id,
         summary_text=mechanism.get("summary_text"),
         steps=steps
+    )
+
+
+# ==============================================================================
+# API Endpoints - Electron Flow Query
+# ==============================================================================
+
+@app.post("/api/enzyme/mechanism/electron_flows", response_model=ElectronFlowResponse)
+async def query_electron_flows(request: ElectronFlowQueryRequest):
+    """
+    Query electron flow information for mechanism steps.
+    
+    This endpoint returns detailed electron flow data extracted from mechanism diagrams,
+    showing how electrons move between atoms during each catalytic step. This is essential
+    for understanding the molecular-level details of enzyme catalysis.
+    
+    **Request Body:**
+    ```json
+    {
+        "query_id": "P56868",
+        "mechanism_id": null,
+        "step_index": null,
+        "include_cxsmiles": true
+    }
+    ```
+    
+    **Parameters:**
+    - `query_id`: MCSA ID, UniProt ID, or PDB ID
+    - `mechanism_id`: Optional - filter by specific mechanism (for enzymes with multiple mechanisms)
+    - `step_index`: Optional - get specific step only (0=reactant, 1=step1, etc.)
+    - `include_cxsmiles`: Whether to include CXSMILES molecular representations
+    
+    **Response includes:**
+    - steps: List of parsed mechanism steps with:
+        - step_index: Step number (0=reactant)
+        - role: 'reactant', 'intermediate', or 'product'
+        - electron_flows: Array of electron movements with source and target
+        - involved_residues: List of catalytic residues involved
+        - cxsmiles: ChemAxon Extended SMILES representation
+    """
+    result = retriever.get_mechanism_electron_flows(
+        request.query_id,
+        mechanism_id=request.mechanism_id,
+        step_index=request.step_index,
+        include_cxsmiles=request.include_cxsmiles
+    )
+    
+    if result is None:
+        return ElectronFlowResponse(
+            found=False,
+            message=f"No enzyme found matching identifier '{request.query_id}', so electron flow information cannot be retrieved. Please verify the identifier.",
+            query_id=request.query_id
+        )
+    
+    enzyme_name = result["enzyme_name"]
+    mcsa_id = result["mcsa_id"]
+    steps = result.get("steps", [])
+    total_steps = result.get("total_steps", 0)
+    
+    if not steps:
+        message = f"Found enzyme '{enzyme_name}' (MCSA ID: {mcsa_id}), but no parsed electron flow information is available."
+    else:
+        # Count steps by status
+        success_steps = sum(1 for s in steps if s.get("processing_status") == "success")
+        warning_steps = sum(1 for s in steps if s.get("processing_status") == "warning")
+        error_steps = sum(1 for s in steps if s.get("processing_status") == "error")
+        steps_with_flows = sum(1 for s in steps if s.get("electron_flows"))
+        
+        filter_info = []
+        if request.mechanism_id is not None:
+            filter_info.append(f"mechanism {request.mechanism_id}")
+        if request.step_index is not None:
+            filter_info.append(f"step {request.step_index}")
+        filter_str = f" (filtered by {', '.join(filter_info)})" if filter_info else ""
+        
+        # Build status info
+        status_parts = []
+        if success_steps > 0:
+            status_parts.append(f"{success_steps} successful")
+        if warning_steps > 0:
+            status_parts.append(f"{warning_steps} with warnings")
+        if error_steps > 0:
+            status_parts.append(f"{error_steps} failed")
+        status_info = f" ({', '.join(status_parts)})" if (warning_steps > 0 or error_steps > 0) else ""
+        
+        message = f"Successfully retrieved electron flow information for enzyme '{enzyme_name}': {total_steps} steps{filter_str}{status_info}, {steps_with_flows} with electron flow data."
+    
+    return ElectronFlowResponse(
+        found=True,
+        message=message,
+        query_id=request.query_id,
+        enzyme_name=enzyme_name,
+        mcsa_id=mcsa_id,
+        total_steps=total_steps,
+        steps=steps
+    )
+
+
+@app.post("/api/enzyme/mechanism/electron_flows/summary", response_model=ElectronFlowSummaryResponse)
+async def query_electron_flow_summary(request: QueryRequest):
+    """
+    Get a summary of electron flow information for an enzyme's mechanisms.
+    
+    Returns an overview of all mechanisms including step counts and involved catalytic residues,
+    without the detailed electron flow data. Useful for getting a quick overview before
+    requesting detailed electron flow information.
+    
+    **Request Body:**
+    ```json
+    {
+        "query_id": "P56868"
+    }
+    ```
+    
+    **Response includes:**
+    - mechanism_count: Number of mechanisms for this enzyme
+    - all_involved_residues: Combined list of all catalytic residues involved
+    - mechanisms: List with per-mechanism summary:
+        - mechanism_id: Mechanism identifier
+        - step_count: Total number of steps
+        - steps_with_electron_flows: Steps that have electron flow data
+        - involved_residues: Residues involved in this mechanism
+    """
+    result = retriever.get_mechanism_electron_flow_summary(request.query_id)
+    
+    if result is None:
+        return ElectronFlowSummaryResponse(
+            found=False,
+            message=f"No enzyme found matching identifier '{request.query_id}', so electron flow summary cannot be retrieved. Please verify the identifier.",
+            query_id=request.query_id
+        )
+    
+    enzyme_name = result["enzyme_name"]
+    mcsa_id = result["mcsa_id"]
+    mechanism_count = result.get("mechanism_count", 0)
+    mechanisms = result.get("mechanisms", [])
+    all_residues = result.get("all_involved_residues", [])
+    
+    if mechanism_count == 0:
+        message = f"Found enzyme '{enzyme_name}' (MCSA ID: {mcsa_id}), but no parsed mechanism data is available."
+    else:
+        total_steps = sum(m.get("step_count", 0) for m in mechanisms)
+        residue_info = f", involving {len(all_residues)} catalytic residues" if all_residues else ""
+        message = f"Successfully retrieved electron flow summary for enzyme '{enzyme_name}': {mechanism_count} mechanism(s) with {total_steps} total steps{residue_info}."
+    
+    return ElectronFlowSummaryResponse(
+        found=True,
+        message=message,
+        query_id=request.query_id,
+        enzyme_name=enzyme_name,
+        mcsa_id=mcsa_id,
+        mechanism_count=mechanism_count,
+        all_involved_residues=all_residues,
+        mechanisms=mechanisms
+    )
+
+
+# ==============================================================================
+# API Endpoints - Cofactors Query
+# ==============================================================================
+
+@app.post("/api/enzyme/cofactors", response_model=CofactorsResponse)
+async def query_cofactors(request: CofactorsQueryRequest):
+    """
+    Query cofactor information for an enzyme.
+    
+    Cofactors are non-protein molecules that assist in enzyme catalysis,
+    such as FAD, NAD, metal ions (Cu, Zn), etc.
+    
+    **Request Body:**
+    ```json
+    {
+        "query_id": "P56868",
+        "include_smiles": false
+    }
+    ```
+    
+    **Response includes:**
+    - cofactors: List of cofactors with:
+        - pdb_code: Cofactor abbreviation (e.g., "FAD", "NAD", "CU")
+        - name: Full cofactor name
+        - chebi_id: ChEBI identifier
+        - kegg_compound: KEGG compound ID
+        - roles: List of functional roles in the mechanism
+        - smiles: SMILES string (if include_smiles is true)
+    """
+    result = retriever.get_cofactors(request.query_id, include_smiles=request.include_smiles)
+    
+    if result is None:
+        return CofactorsResponse(
+            found=False,
+            message=f"No enzyme found matching identifier '{request.query_id}', so cofactor information cannot be retrieved. Please verify the identifier.",
+            query_id=request.query_id
+        )
+    
+    enzyme_name = result["enzyme_name"]
+    mcsa_id = result["mcsa_id"]
+    cofactors = result.get("cofactors", [])
+    
+    if not cofactors:
+        message = f"Found enzyme '{enzyme_name}' (MCSA ID: {mcsa_id}), but no cofactor information is recorded for this enzyme."
+    else:
+        cofactor_names = [c.get("pdb_code") or c.get("name") for c in cofactors]
+        smiles_info = " (with SMILES)" if request.include_smiles else ""
+        message = f"Successfully retrieved cofactor information for enzyme '{enzyme_name}': {len(cofactors)} cofactor(s) found ({', '.join(cofactor_names[:5])}{'...' if len(cofactor_names) > 5 else ''}){smiles_info}."
+    
+    return CofactorsResponse(
+        found=True,
+        message=message,
+        query_id=request.query_id,
+        enzyme_name=enzyme_name,
+        mcsa_id=mcsa_id,
+        cofactors=cofactors
     )
 
 

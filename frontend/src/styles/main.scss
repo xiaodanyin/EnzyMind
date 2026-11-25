@@ -1,12 +1,12 @@
 // CSS Variables & Theme - Modern Scientific Design System
 :root {
-  // 🎨 Primary Colors - Deep Ocean Blue (科研专业感)
+  // 🎨 Primary Colors - Deep Ocean Blue (scientific professionalism)
   --color-primary: #2563eb;
   --color-primary-light: #eff6ff;
   --color-primary-dark: #1d4ed8;
   --color-primary-gradient: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
   
-  // 🟢 Success - Emerald Green (生物活力)
+  // 🟢 Success - Emerald Green (biological vitality)
   --color-success: #059669;
   --color-success-light: #ecfdf5;
   --color-success-dark: #047857;
@@ -23,7 +23,7 @@
   --color-info: #0891b2;
   --color-info-light: #ecfeff;
   
-  // ✨ Accent Colors (DNA/Protein风格)
+  // ✨ Accent Colors (DNA/protein-inspired)
   --color-accent-1: #8b5cf6;  // Violet
   --color-accent-2: #06b6d4;  // Cyan
   --color-accent-3: #10b981;  // Emerald
@@ -91,7 +91,7 @@
   // 📏 Layout
   --navbar-height: 72px;
   --container-max-width: 1400px;
-  --content-max-width: 1200px;
+  --page-gutter: var(--spacing-lg);
   
   // 🌊 Glassmorphism
   --glass-bg: rgba(255, 255, 255, 0.7);
@@ -123,7 +123,7 @@ body {
   -moz-osx-font-smoothing: grayscale;
   overflow-x: hidden;
   
-  // 添加微妙的网格背景纹理
+  // Add a subtle background texture
   &::before {
     content: '';
     position: fixed;
@@ -182,7 +182,7 @@ a {
   width: 100%;
   max-width: var(--container-max-width);
   margin: 0 auto;
-  padding: 0 var(--spacing-lg);
+  padding-inline: var(--page-gutter);
 }
 
 .text-center { text-align: center; }
@@ -468,23 +468,14 @@ input[type="file"] {
 }
 
 // 📱 Responsive
-@media (max-width: 1200px) {
-  :root {
-    --container-max-width: 100%;
-  }
-}
-
 @media (max-width: 768px) {
   :root {
-    --navbar-height: 64px; // 移动端导航栏高度略微减小
+    --navbar-height: 64px; // Slightly reduce navbar height on mobile
+    --page-gutter: var(--spacing-md);
   }
   
   html {
     font-size: 15px;
-  }
-  
-  .container {
-    padding: 0 var(--spacing-md);
   }
   
   h1 { font-size: 2rem; }
@@ -493,7 +484,7 @@ input[type="file"] {
 
 @media (max-width: 480px) {
   :root {
-    --navbar-height: 60px; // 超小屏导航栏更紧凑
+    --navbar-height: 60px; // Use a more compact navbar on extra-small screens
   }
   
   html {
@@ -505,7 +496,7 @@ input[type="file"] {
   }
 }
 
-// 🍎 iOS Safe Area 支持
+// 🍎 iOS Safe Area Support
 @supports (padding-top: env(safe-area-inset-top)) {
   .app-header {
     padding-top: env(safe-area-inset-top);
@@ -587,4 +578,10 @@ input[type="file"] {
   &:hover {
     box-shadow: 0 0 30px rgba(37, 99, 235, 0.3);
   }
+}
+
+// Stable scientific inputs and accessible navigation within the existing theme.
+:where(button,a,input,textarea,select,summary):focus-visible {outline:3px solid var(--color-primary);outline-offset:3px;}
+@media (prefers-reduced-motion: reduce) {
+  *,*::before,*::after {animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important;scroll-behavior:auto !important;}
 }

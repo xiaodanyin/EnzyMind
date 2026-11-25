@@ -3,11 +3,13 @@
 
 from fastapi import FastAPI, HTTPException, Form, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
+from pydantic import BaseModel, Field, AliasChoices
 from typing import Optional, List, Dict, Any
 import uvicorn
 
 from models.catalytic_activity_query import CatalyticActivityQuery
+from models.ec_info_query import normalize_ec, query_ec_info, UNIPROT
 
 app = FastAPI(
     title="EC Reaction Info Service",
@@ -33,6 +35,7 @@ class ActivityQueryRequest(BaseModel):
 
 
 class ActivityQueryResponse(BaseModel):
+    source: Optional[dict] = None
     success: bool
     uniprot_id: str
     activities: List[Dict[str, Any]] = Field(default_factory=list)
@@ -40,6 +43,12 @@ class ActivityQueryResponse(BaseModel):
     markdown: Optional[str] = None
     result: Optional[str] = None
     error: Optional[str] = None
+
+
+class ECInfoRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=100,
+                       validation_alias=AliasChoices('query', 'ec_number', 'uniprot_id'),
+                       description='EC number (e.g. 3.2.1.17) or UniProt accession')
 
 
 class BatchQueryRequest(BaseModel):
@@ -63,12 +72,24 @@ async def health_check():
     return HealthResponse(status="healthy", service="ec_reaction_info", version="1.0.0")
 
 
+@app.post('/api/query/ec-info', tags=['EC Information'])
+def query_ec_information(request: ECInfoRequest):
+    value = request.query.strip()
+    code = normalize_ec(value)
+    if code:
+        return query_ec_info(code)
+    if UNIPROT.fullmatch(value):
+        result = activity_query.get_catalytic_activities(value.upper(), capability='enzyme_status')
+        return {**result, 'result': result.get('markdown')}
+    raise HTTPException(422, detail='Enter an EC number such as 3.2.1.17 or a valid UniProt accession.')
+
+
 @app.post("/api/query/catalytic-activity", response_model=ActivityQueryResponse, tags=["Catalytic Activity"])
 async def query_catalytic_activity(request: ActivityQueryRequest):
     if not request.query or not request.query.strip():
         raise HTTPException(status_code=400, detail="UniProt ID is required")
     
-    result = activity_query.get_catalytic_activities(request.query.strip())
+    result = await run_in_threadpool(activity_query.get_catalytic_activities, request.query.strip())
     
     return ActivityQueryResponse(
         success=result["success"],
@@ -77,7 +98,8 @@ async def query_catalytic_activity(request: ActivityQueryRequest):
         count=result.get("count"),
         markdown=result.get("markdown"),
         result=result.get("markdown"),
-        error=result.get("error")
+        error=result.get("error"),
+        source=result.get("source")
     )
 
 
@@ -86,7 +108,7 @@ async def query_catalytic_activity_form(query: str = Form(...)):
     if not query or not query.strip():
         raise HTTPException(status_code=400, detail="UniProt ID is required")
     
-    result = activity_query.get_catalytic_activities(query.strip())
+    result = await run_in_threadpool(activity_query.get_catalytic_activities, query.strip())
     
     return ActivityQueryResponse(
         success=result["success"],
@@ -95,7 +117,8 @@ async def query_catalytic_activity_form(query: str = Form(...)):
         count=result.get("count"),
         markdown=result.get("markdown"),
         result=result.get("markdown"),
-        error=result.get("error")
+        error=result.get("error"),
+        source=result.get("source")
     )
 
 
@@ -109,7 +132,7 @@ async def query_catalytic_activity_batch(request: BatchQueryRequest):
     if not clean_ids:
         raise HTTPException(status_code=400, detail="No valid UniProt IDs provided")
     
-    results = activity_query.batch_get_activities(clean_ids)
+    results = await run_in_threadpool(activity_query.batch_get_activities, clean_ids)
     successful = sum(1 for r in results.values() if r["success"])
     
     return BatchQueryResponse(results=results, total=len(clean_ids), successful=successful)
@@ -133,7 +156,7 @@ async def query_catalytic_activity_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="No valid UniProt IDs found in file")
     
     uniprot_ids = list(set(uniprot_ids))
-    results = activity_query.batch_get_activities(uniprot_ids)
+    results = await run_in_threadpool(activity_query.batch_get_activities, uniprot_ids)
     successful = sum(1 for r in results.values() if r["success"])
     
     return BatchQueryResponse(results=results, total=len(uniprot_ids), successful=successful)

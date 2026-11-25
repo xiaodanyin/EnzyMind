@@ -1,0 +1,185 @@
+{
+  "date": "2026-11-09",
+  "scope": "Native n8n Agent text streaming, durable partial answers and authenticated browser SSE.",
+  "deployment": {
+    "workflow_id": "4L8PfUS3VVcclwLh",
+    "active": true,
+    "active_version": "b51fa851-ab17-442c-92a5-0aa28373db08",
+    "n8n_version": "2.23.2",
+    "existing_model_binding_preserved": true,
+    "gateway_restarted_and_healthy": true,
+    "frontend_build": "passed",
+    "backup_directory": "files/workspace/backups/2026-11-09/streaming/",
+    "existing_records_preserved": {
+      "sessions": {
+        "before": 18,
+        "unchanged": 18
+      },
+      "turns": {
+        "before": 38,
+        "unchanged": 38
+      },
+      "results": {
+        "before": 51,
+        "unchanged": 51
+      }
+    }
+  },
+  "automated_tests": [
+    {
+      "suite": "Gateway persistence, API and streaming",
+      "passed": 31,
+      "failed": 0,
+      "command": "gateway/venv/bin/python -m unittest discover -s gateway/tests -v",
+      "streaming_coverage": "Native NDJSON, arbitrary UTF-8 splits, text before final completion, hidden summary filtering, atomic memory commit, missing completion, error envelopes, cancellation, saved partial text, SSE snapshot/delta/reconnect and owner isolation."
+    },
+    {
+      "suite": "n8n workflow and context handling",
+      "passed": 8,
+      "failed": 0,
+      "command": "node agent_n8n/workspace/tests/workflow.test.mjs"
+    },
+    {
+      "suite": "Built frontend Agent streaming and memory",
+      "passed": 4,
+      "failed": 0,
+      "command": "cd frontend && ENZYMIND_TEST_URL=http://127.0.0.1:3012/enzymind/ npx --no-install playwright test tests/browser/streaming.spec.mjs tests/browser/memory.spec.mjs",
+      "streaming_coverage": "Real incremental HTTP fixture: text visible while running, split Chinese/emoji bytes, forced disconnect, refresh without resubmitting POST, stop/failure with partial text, saved memory restoration. Scientific responses are mocked in this suite."
+    }
+  ],
+  "live_native_stream": {
+    "transport": "Real frontend proxy on port 3010 -> gateway -> activated n8n -> existing model",
+    "passed": true,
+    "turns": [
+      {
+        "first_text_seconds": 1.778,
+        "completion_seconds": 6.403,
+        "delta_frames": 25,
+        "streamed_characters": 689,
+        "status": "completed",
+        "error": null,
+        "tool_calls": []
+      },
+      {
+        "first_text_seconds": 1.285,
+        "completion_seconds": 3.293,
+        "delta_frames": 9,
+        "streamed_characters": 384,
+        "status": "completed",
+        "error": null,
+        "tool_calls": []
+      }
+    ],
+    "memory_revision": 2,
+    "followup_recalled_markers": true
+  },
+  "live_browser_and_database_tool": {
+    "visible_before_completion": true,
+    "first_visible_seconds": 5.327,
+    "completed_seconds": 9.705,
+    "status": "completed",
+    "tools": [
+      {
+        "tool": "enzyme-info",
+        "status": "completed"
+      }
+    ],
+    "result_links": 1,
+    "browser_errors": [],
+    "passed": true,
+    "citation_opens_saved_result": true
+  },
+  "live_memory_compression": {
+    "initial_summary_validation_failure": "Memory compression failed. The original conversation is preserved. [line 5]",
+    "failure_preserved_original_history_and_memory": true,
+    "recovery_passed": true,
+    "compression_passes": 3,
+    "memory": {
+      "memory_revision": 2,
+      "summarized_count": 8,
+      "compression_count": 3,
+      "context_tokens": 8551
+    },
+    "raw_turn_count": 8,
+    "followups": [
+      {
+        "status": "completed",
+        "error": null,
+        "first_text_seconds": 6.475,
+        "delta_frames": 3,
+        "memory_events": [
+          {
+            "state": "evaluating",
+            "label": "Checking the conversation context budget"
+          },
+          {
+            "state": "compressing",
+            "context_tokens": 21052,
+            "label": "Compressing older conversation; original turns remain saved"
+          },
+          {
+            "state": "compressing",
+            "context_tokens": 14981,
+            "label": "Compressing older conversation; original turns remain saved"
+          },
+          {
+            "state": "compressing",
+            "context_tokens": 11585,
+            "label": "Compressing older conversation; original turns remain saved"
+          },
+          {
+            "state": "ready",
+            "context_tokens": 8350,
+            "label": "Memory ready for analysis"
+          },
+          {
+            "state": "saved",
+            "label": "Answer and memory saved",
+            "summarized_count": 8,
+            "context_tokens": 8350,
+            "compression_count": 3
+          }
+        ],
+        "tool_calls": 0
+      },
+      {
+        "status": "completed",
+        "error": null,
+        "first_text_seconds": 0.841,
+        "delta_frames": 3,
+        "memory_events": [
+          {
+            "state": "evaluating",
+            "label": "Checking the conversation context budget"
+          },
+          {
+            "state": "ready",
+            "context_tokens": 8551,
+            "label": "Memory ready for analysis"
+          },
+          {
+            "state": "saved",
+            "label": "Answer and memory saved",
+            "summarized_count": 8,
+            "context_tokens": 8551,
+            "compression_count": 0
+          }
+        ],
+        "tool_calls": 0
+      }
+    ]
+  },
+  "semantics": [
+    "Only visible Research Agent text is streamed; memory summaries and tool arguments are excluded.",
+    "Partial text is checkpointed separately and survives refresh/disconnection.",
+    "Reconnecting uses an authoritative snapshot and never resubmits the turn.",
+    "Cancellation or upstream failure leaves partial text explicitly labelled and excludes it from completed conversation memory.",
+    "Final answer, normalized result links and memory commit together only after the workflow completion envelope validates."
+  ],
+  "limitations": [
+    "Time to first text depends on model generation, tool execution and any required memory compression; measurements are observations from these test turns, not latency guarantees.",
+    "A model summary can fail existing length validation; the tested failure preserved old memory and raw history, and a subsequent test turn completed three compression passes successfully.",
+    "Streaming was verified through the live frontend proxy and local browser. External reverse proxies must honor X-Accel-Buffering: no or disable buffering on the stream route."
+  ],
+  "temporary_evidence_directory": "/tmp/enzymind-streaming"
+}

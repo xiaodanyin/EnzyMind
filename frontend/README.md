@@ -2,6 +2,32 @@
 
 Modern Vue 3 frontend for the EnzyMind enzyme informatics platform.
 
+## Enzyme–molecule result cards
+
+`ResearchResult` uses `EnzymePairResult` / `EnzymePartner` for kcat, Km,
+substrate compatibility, reaction-conditioned active sites, enzyme recommendations,
+and recorded catalytic reactions. Tool pages, saved Results and the Agent inspector
+share this renderer. Partners stack vertically at the same width on every screen, with independent
+content heights. Molecular previews use a plain expand control; residue panels
+retain the structure viewer’s responsive layout and natural content height.
+Returned rows retain their own sequences, structures and reactions. Original inputs
+and complete result JSON remain in the provenance / export controls.
+
+The enzyme side reuses `SequencePreview`, `ProteinViewer`, `ReferenceStructure`
+and `EcClassification`. EC-only results describe a function, not a particular
+protein. Reaction text without SMILES stays text; no chemical structure is inferred.
+Accession-only historical records may load a separate, explicitly labelled reference
+sequence via GET `/api/query/enzyme-full-info/{accession}/sequence`, and a reference
+AlphaFold model through the existing structure GET. These reads do not create
+analysis records or rerun prediction services. Missing reference data leaves the
+saved pair and its scalar result available, with independent retry controls.
+
+Deploy using `bash scripts/deploy.sh frontend` and restart frontend with the existing
+start/stop scripts. When reference endpoints change, also restart `enzyme_full_info`
+and Gateway after active requests finish.
+No new package or environment variable is required. The sequence lookup uses the
+existing `ENZYMIND_UNIPROT_LOCAL_DB_PATH` configuration and local-first policy.
+
 ## Tech Stack
 
 - **Vue 3** - Composition API with `<script setup>`
@@ -11,7 +37,7 @@ Modern Vue 3 frontend for the EnzyMind enzyme informatics platform.
 - **Axios** - HTTP client
 - **SCSS** - Styling with CSS variables
 - **marked** - Markdown rendering
-- **3Dmol.js** - Protein structure visualization
+- **Mol\*** - Protein structure visualization
 
 ## Project Structure
 
@@ -52,7 +78,15 @@ npm install
 npm run dev
 ```
 
-The development server runs at `http://localhost:3000` and proxies API requests to the gateway at `http://localhost:8080`.
+The development server runs at `http://localhost:3010` and proxies API requests to the gateway at `http://localhost:8080`.
+
+The public API base URL is:
+
+```text
+https://cadd.zju.edu.cn/enzymind/api/
+```
+
+For example, the active-site prediction endpoint is `https://cadd.zju.edu.cn/enzymind/api/predict/active-sites`.
 
 ## Production Build
 
@@ -63,19 +97,26 @@ npm run preview
 
 ## API Proxy Configuration
 
-In development, Vite proxies `/api` requests to the gateway server:
+In development, Vite proxies `/enzymind/api` requests to the gateway server:
 
 ```javascript
 // vite.config.js
 server: {
   proxy: {
-    '/api': {
+    '/enzymind/api': {
       target: 'http://localhost:8080',
       changeOrigin: true
     }
   }
 }
 ```
+
+## Help guide artwork
+
+Quick Start's tool images and editable SVG sources live in
+[`src/assets/help-guides/`](src/assets/help-guides/README.md). Keep production
+images in this existing asset tree; root-level `artifacts/` is reserved for local
+captures, intermediate renders and review previews and is ignored by Git.
 
 ## Styling
 

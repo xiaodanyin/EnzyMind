@@ -4,8 +4,14 @@ Utility functions for Active Sites Prediction Service
 """
 
 import re
-import requests
+import sys
+from pathlib import Path
 from typing import Tuple, Optional
+
+root = str(Path(__file__).resolve().parents[3])
+if root not in sys.path:
+    sys.path.insert(0, root)
+from shared.uniprot import uniprot_sequence_client, UniProtDownloadError
 
 
 def is_amino_acid_sequence(text: str) -> bool:
@@ -153,14 +159,9 @@ def get_uniprot_sequence(uniprot_id: str) -> Optional[str]:
     Returns:
         Protein sequence or None if not found
     """
-    url = f"https://www.uniprot.org/uniprot/{uniprot_id}.fasta"
-    
     try:
-        response = requests.get(url, timeout=30)
-        if response.status_code == 200:
-            return extract_sequence_from_fasta_content(response.text)
-        return None
-    except Exception:
+        return uniprot_sequence_client.fetch(uniprot_id).sequence
+    except UniProtDownloadError:
         return None
 
 

@@ -3,8 +3,7 @@
 """
 import os
 import re
-import requests
-from pathlib import Path
+from shared.uniprot import ACCESSION, uniprot_sequence_client
 
 
 def is_amino_acid_sequence(input_str: str) -> bool:
@@ -15,8 +14,7 @@ def is_amino_acid_sequence(input_str: str) -> bool:
 
 def is_uniprot_id(input_str: str) -> bool:
     """检查输入是否为UniProt ID格式"""
-    uniprot_regex = re.compile(r"^\b[A-Z][A-Z0-9]{5,9}\b$")
-    return bool(uniprot_regex.match(input_str.strip()))
+    return bool(re.fullmatch(ACCESSION, input_str.strip().upper()))
 
 
 def is_fasta_file(path: str) -> bool:
@@ -31,15 +29,7 @@ def is_fasta_content(content: str) -> bool:
 
 def get_uniprot_sequence(uniprot_id: str) -> str:
     """从UniProt获取蛋白质序列"""
-    url = f"https://rest.uniprot.org/uniprotkb/{uniprot_id}.fasta"
-    response = requests.get(url, timeout=30)
-    
-    if response.status_code == 200:
-        lines = response.text.strip().split('\n')
-        sequence = ''.join(lines[1:])
-        return sequence
-    else:
-        raise ValueError(f"Failed to retrieve sequence for UniProt ID: {uniprot_id}")
+    return uniprot_sequence_client.fetch(uniprot_id).sequence
 
 
 def extract_sequence_from_fasta_content(fasta_content: str) -> str:
@@ -120,7 +110,7 @@ def classify_input_v2(raw: str) -> str:
     raw = raw.strip()
     
     # 判断是否为 UniProt ID
-    if re.match(r"^[OPQ][0-9][A-Z0-9]{3}[0-9]$", raw) or re.match(r"^[A-NR-Z][0-9][A-Z0-9]{3}[0-9]$", raw):
+    if is_uniprot_id(raw):
         return get_uniprot_sequence(raw)
     
     # 判断是否为 FASTA 格式

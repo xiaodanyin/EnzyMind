@@ -1,12 +1,12 @@
-# Functional Site Service - Functional Site Query Microservice
+# Functional Site Query Service
 
 ## Port: 18916
 
-## API Endpoints
+## API endpoints
 - `/health` - Health check
-- `/api/query/features` - Query functional sites
+- `/api/query/features` - Retrieve annotated functional sites
 
-## Usage Examples
+## Examples
 
 ```bash
 curl -X POST http://localhost:18916/api/query/features \

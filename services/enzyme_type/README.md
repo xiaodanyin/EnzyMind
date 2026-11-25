@@ -170,16 +170,16 @@ print(markdown)
 # Health check
 curl -X GET "http://localhost:18908/health"
 
-# Query enzyme type (JSON input)
+# Query enzyme classes (JSON)
 curl -X POST "http://localhost:18908/api/query/enzyme-type" \
     -H "Content-Type: application/json" \
     -d '{"query": "CC(=O)O>>CCO"}'
 
-# Query enzyme type (form input)
+# Query enzyme classes (form)
 curl -X POST "http://localhost:18908/api/query/enzyme-type/form" \
     -F "query=CC(=O)O>>CCO"
 
-# Get Top K recommendations
+# Get top-k recommendations
 curl -X POST "http://localhost:18908/api/query/enzyme-type/top-k" \
     -H "Content-Type: application/json" \
     -d '{"query": "CC(=O)O>>CCO", "k": 5}'
@@ -189,7 +189,7 @@ curl -X POST "http://localhost:18908/api/query/enzyme-type/formatted" \
     -H "Content-Type: application/json" \
     -d '{"query": "CC(=O)O>>CCO"}'
 
-# Get Markdown table
+# Get a Markdown table
 curl -X POST "http://localhost:18908/api/query/enzyme-type/markdown" \
     -H "Content-Type: application/json" \
     -d '{"query": "CC(=O)O>>CCO"}'
@@ -220,7 +220,7 @@ enzyme_type/
 ## External Dependencies
 
 This service relies on the RetroPlanner API:
-- URL: `http://cadd.iddd.group/retroplanner/api/enzyme_recommender`
+- URL: `https://cadd.iddd.group/retroplanner/api/enzyme_recommender`
 - Input: Reaction SMILES
 - Output: EC numbers with confidence scores
 

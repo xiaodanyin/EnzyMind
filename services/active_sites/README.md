@@ -1,28 +1,29 @@
-# Active Sites Prediction Service
+# Active Site Prediction Service
 
 ## Overview
 
-This service predicts enzyme active sites using the EasIFA (Easy Identification of Functional Active sites) API. It supports multiple input types and both synchronous and asynchronous workflows.
+This service uses the EasIFA (Easy Identification of Functional Active sites) API to predict functional residues from UniProt accessions, protein sequences or structures.
 
 ## Features
 
-- Multiple input types:
-    - UniProt ID via `/from_uniprot`
-    - Amino acid sequence via `/from_sequence`
-    - PDB structure file via `/from_structure`
-- Synchronous and asynchronous prediction modes
-    - Sync: submit and wait for the result
-    - Async: submit, get a `job_id`, then poll for status/results
+- Supported input formats:
+  - UniProt accession: `/from_uniprot`
+  - Amino acid sequence: `/from_sequence`
+  - PDB structure file: `/from_structure`
+- Synchronous and asynchronous prediction modes:
+  - Synchronous: submit a job and wait for its result
+  - Asynchronous: obtain a job_id, then poll its status and retrieve the result
 - Automatic input-type detection
 
-## API Endpoints
+## API endpoints
 
-### Async submission
+### Asynchronous submission endpoints
 
 #### POST /api/predict/active-sites/submit/uniprot
-Submit an async job with a UniProt ID.
 
-**Request body**
+Submit an asynchronous prediction from a UniProt accession.
+
+**Request body:**
 ```json
 {
     "uniprot_id": "P12345",
@@ -30,7 +31,7 @@ Submit an async job with a UniProt ID.
 }
 ```
 
-**Response**
+**Response:**
 ```json
 {
     "success": true,
@@ -41,9 +42,10 @@ Submit an async job with a UniProt ID.
 ```
 
 #### POST /api/predict/active-sites/submit/sequence
-Submit an async job with an amino acid sequence (JSON input).
 
-**Request body**
+Submit an asynchronous prediction from an amino acid sequence (JSON).
+
+**Request body:**
 ```json
 {
     "aa_sequence": "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQ...",
@@ -52,7 +54,7 @@ Submit an async job with an amino acid sequence (JSON input).
 }
 ```
 
-**Response**
+**Response:**
 ```json
 {
     "success": true,
@@ -63,22 +65,24 @@ Submit an async job with an amino acid sequence (JSON input).
 ```
 
 #### POST /api/predict/active-sites/submit/sequence/form
-Submit an async job with an amino acid sequence (form input).
 
-**Parameters**
-- `aa_sequence` (required): amino acid sequence
-- `rxn_smiles` (optional): reaction SMILES
-- `use_celery` (optional): whether to use Celery async processing, default true
+Submit an asynchronous prediction from an amino acid sequence (form).
+
+**Parameters:**
+- `aa_sequence` (required): Amino acid sequence
+- `rxn_smiles` (optional): Reaction SMILES
+- `use_celery` (optional): Use Celery for asynchronous processing; default true
 
 #### POST /api/predict/active-sites/submit/structure
-Submit an async job with a PDB structure file.
 
-**Parameters**
-- `pdb_file` (required): PDB file
-- `rxn_smiles` (optional): reaction SMILES
-- `use_celery` (optional): whether to use Celery async processing, default true
+Submit an asynchronous prediction from a PDB structure file.
 
-**Response**
+**Parameters:**
+- `pdb_file` (required): PDB structure file
+- `rxn_smiles` (optional): Reaction SMILES
+- `use_celery` (optional): Use Celery for asynchronous processing; default true
+
+**Response:**
 ```json
 {
     "success": true,
@@ -88,12 +92,15 @@ Submit an async job with a PDB structure file.
 }
 ```
 
-### Job status and results
+### Job status and result endpoints
+
+Submission, status polling and result retrieval must use the same cookie or `X-Easifa-Session`. Existing URLs, parameters and response shapes remain compatible; failed private-result retrieval returns `success=false`. See the privacy compatibility section below.
 
 #### GET /api/predict/active-sites/job/{job_id}
+
 Check job status.
 
-**Response**
+**Response excerpt (data omitted):**
 ```json
 {
     "success": true,
@@ -103,9 +110,10 @@ Check job status.
 ```
 
 #### GET /api/predict/active-sites/results/{job_id}
-Fetch job results.
 
-**Response**
+Retrieve a job result.
+
+**Response excerpt (data omitted):**
 ```json
 {
     "success": true,
@@ -114,12 +122,13 @@ Fetch job results.
 }
 ```
 
-### Synchronous prediction
+### Synchronous prediction endpoints
 
 #### POST /api/predict/active-sites
-Sync prediction by UniProt ID (submit and wait).
 
-**Request body**
+Submit a UniProt accession and wait for the prediction result.
+
+**Request body:**
 ```json
 {
     "uniprot_id": "P12345",
@@ -127,7 +136,7 @@ Sync prediction by UniProt ID (submit and wait).
 }
 ```
 
-**Response**
+**Response:**
 ```json
 {
     "result": "| Residue Index | Residue Name | Active Type | Confidence |\n|---|---|---|---|\n| 145 | HIS | catalytic | 0.95 |"
@@ -135,34 +144,37 @@ Sync prediction by UniProt ID (submit and wait).
 ```
 
 #### POST /api/predict/active-sites/sequence
-Sync prediction by amino acid sequence (form input).
 
-**Parameters**
-- `aa_sequence` (required): amino acid sequence
-- `rxn_smiles` (optional): reaction SMILES
-- `use_celery` (optional): whether to use Celery, default true
-- `timeout` (optional): seconds, default 600
+Predict from an amino acid sequence synchronously (form).
+
+**Parameters:**
+- `aa_sequence` (required): Amino acid sequence
+- `rxn_smiles` (optional): Reaction SMILES
+- `use_celery` (optional): Use Celery; default true
+- `timeout` (optional): Timeout in seconds; default 600
 
 #### POST /api/predict/active-sites/structure
-Sync prediction by PDB structure file.
 
-**Parameters**
-- `pdb_file` (required): PDB file
-- `rxn_smiles` (optional): reaction SMILES
-- `use_celery` (optional): whether to use Celery, default true
-- `timeout` (optional): seconds, default 600
+Predict from a PDB structure file synchronously.
 
-### Auto-detect endpoint
+**Parameters:**
+- `pdb_file` (required): PDB structure file
+- `rxn_smiles` (optional): Reaction SMILES
+- `use_celery` (optional): Use Celery; default true
+- `timeout` (optional): Timeout in seconds; default 600
+
+### Automatic input detection
 
 #### POST /api/predict/active-sites/auto
-Auto-detect input type and submit. Supports UniProt ID or amino acid sequence; for PDB files use `/submit/structure`.
 
-**Parameters**
-- `input_data` (required): UniProt ID or amino acid sequence
-- `rxn_smiles` (optional): reaction SMILES (for sequence input)
-- `use_celery` (optional): whether to use Celery, default true
+Detect the input type and submit a prediction. Accepts a UniProt accession or amino acid sequence; use `/submit/structure` for PDB files.
 
-**Response**
+**Parameters:**
+- `input_data` (required): UniProt accession or amino acid sequence
+- `rxn_smiles` (optional): Reaction SMILES for sequence input
+- `use_celery` (optional): Use Celery; default true
+
+**Response:**
 ```json
 {
     "success": true,
@@ -173,7 +185,8 @@ Auto-detect input type and submit. Supports UniProt ID or amino acid sequence; f
 ```
 
 ### GET /health
-Health check.
+
+Health check endpoint.
 
 ## Installation
 
@@ -181,15 +194,15 @@ Health check.
 cd services/active_sites
 python -m venv venv
 source venv/bin/activate  # Linux/Mac
-# or venv\Scripts\activate  # Windows
+# Or venv\Scripts\activate  # Windows
 pip install -r requirements.txt
 ```
 
-## Run
+## Running
 
 ```bash
 python main.py
-# or
+# Or
 uvicorn main:app --host 0.0.0.0 --port 18907 --reload
 ```
 
@@ -204,19 +217,21 @@ pytest tests/ -v
 ### curl
 
 ```bash
-# ===== UniProt ID input =====
+# ===== UniProt accession input =====
+
+
 curl -X POST "http://localhost:18907/api/predict/active-sites" \
-        -H "Content-Type: application/json" \
-        -d '{"uniprot_id": "P12345"}'
+    -H "Content-Type: application/json" \
+    -d '{"uniprot_id": "P12345"}'
 
 # ===== Sequence input =====
 curl -X POST "http://localhost:18907/api/predict/active-sites" \
-        -H "Content-Type: application/json" \
-        -d '{"aa_sequence": "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQ"}'
+    -H "Content-Type: application/json" \
+    -d '{"aa_sequence": "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQ"}'
 
 curl -X POST "http://localhost:18907/api/predict/active-sites" \
-        -H "Content-Type: application/json" \
-        -d '{"aa_sequence": "MASKLLRAVILGPPGSGKGTVCQRIAQNFGLQHLSSGHFLRENIKASTEVGEVAKQYIEKSLLVPDHVITRLMMSELENRRGQHWLLDGFPRTLGQAEALDKICEVDLVISLNIPFETLKDRLSRRWIHPPSGRVYNLDFNPPHVHGIDDVTGEPLVQQEDDKPEAVAARLRQYKDAAKPVIELYKSRGVLHQFSGTETNKIWPYVYTLFSNKITPIQSKEAY", "rxn_smiles": "CC(=O)O>>CC(=O)OC"}'
+    -H "Content-Type: application/json" \
+    -d '{"aa_sequence": "MASKLLRAVILGPPGSGKGTVCQRIAQNFGLQHLSSGHFLRENIKASTEVGEVAKQYIEKSLLVPDHVITRLMMSELENRRGQHWLLDGFPRTLGQAEALDKICEVDLVISLNIPFETLKDRLSRRWIHPPSGRVYNLDFNPPHVHGIDDVTGEPLVQQEDDKPEAVAARLRQYKDAAKPVIELYKSRGVLHQFSGTETNKIWPYVYTLFSNKITPIQSKEAY", "rxn_smiles": "CC(=O)O>>CC(=O)OC"}'
 ```
 
 ### Python client
@@ -229,87 +244,141 @@ client = ActiveSitesClient(base_url="http://localhost:18907")
 # Health check
 print(client.health_check())
 
-# Synchronous prediction (may take time)
+# Synchronous prediction may take several minutes
 result = client.predict_active_sites("P12345")
 print(result)
 
-# Async submission
+# Submit an asynchronous job
 submit_result = client.submit_task("P12345")
 if submit_result.get("success"):
-        job_id = submit_result.get("job_id")
-        print(f"Job submitted: {job_id}")
-
-        # Wait for result
-        result = client.submit_and_wait("P12345", poll_interval=5, max_wait_time=600)
-        print(result)
+    job_id = submit_result.get("job_id")
+    print(f"Job submitted: {job_id}")
+    
+    # Wait for the result
+    result = client.submit_and_wait("P12345", poll_interval=5, max_wait_time=600)
+    print(result)
 ```
 
-## Directory Structure
+## Directory layout
 
 ```
 active_sites/
-├── main.py              # FastAPI app entry
+├── main.py              # FastAPI application
 ├── client.py            # API client
-├── conftest.py          # pytest config
-├── requirements.txt     # dependencies
-├── README.md            # documentation
+├── conftest.py          # pytest configuration
+├── requirements.txt     # Dependencies
+├── README.md            # Documentation
 ├── models/
 │   ├── __init__.py
-│   ├── active_sites_predictor.py  # active site predictor
-│   └── utils.py         # utilities
+│   ├── active_sites_predictor.py  # Functional-site predictor
+│   └── utils.py         # Utility functions
 └── tests/
-        ├── __init__.py
-        └── test_api.py      # test cases
+    ├── __init__.py
+    └── test_api.py      # Tests
 ```
 
 ## Port
 
 Default port: 18907
 
-## External Dependencies
+## External resources
 
-- EasIFA API endpoints:
-    - `/from_uniprot` - UniProt ID input
-    - `/from_sequence` - amino acid sequence input
-    - `/from_structure` - PDB file input
-- pandas for data processing and Markdown table generation
+- EasIFA API:
+  - `/from_uniprot`: UniProt accession input
+  - `/from_sequence`: Amino acid sequence input
+  - `/from_structure`: PDB structure input
+- pandas for data processing and Markdown tables
 - tabulate for table formatting
 
-## Model Notes
+## Model overview
 
-Active site prediction is based on EasIFA:
+Predictions use EasIFA (Easy Identification of Functional Active sites):
 
-1. **Input types**
-     - UniProt ID: fetches protein info from UniProt
-     - Amino acid sequence: optional reaction SMILES can aid prediction
-     - PDB structure file: optional reaction SMILES can aid prediction
+1. **Inputs:**
+   - UniProt accession: retrieve protein information through the upstream database pathway
+   - Amino acid sequence: optionally provide reaction SMILES
+   - PDB structure: optionally provide reaction SMILES
 
-2. **Output**
-     - Residue Index: residue position
-     - Residue Name: residue name
-     - Active Type: type (e.g., catalytic, binding)
-     - Confidence: confidence score
+2. **Outputs:** predicted functional residues, with fields such as:
+   - Residue Index: residue position
+   - Residue Name: amino acid name
+   - Active Type: site class, such as catalytic or binding
+   - Confidence: reported site prediction score; distinct from structure pLDDT
 
-## Async Mode
+## Asynchronous workflow
 
-Because prediction can take minutes, use async mode when needed:
+Prediction can take several minutes. To use asynchronous processing:
 
-1. Submit via `/submit/*`
-2. Receive `job_id`
-3. Poll `/api/predict/active-sites/job/{job_id}` for status
-4. When `completed`, fetch results via `/api/predict/active-sites/results/{job_id}`
+1. Submit through the appropriate `/submit/*` endpoint.
+2. Save the returned `job_id`.
+3. Poll `/api/predict/active-sites/job/{job_id}`.
+4. Once the status is `completed`, retrieve `/api/predict/active-sites/results/{job_id}`.
 
-## Input Type Reference
+## Input comparison
 
-| Input type | Submit endpoint | Sync endpoint | Reaction SMILES required? |
-|------------|-----------------|---------------|---------------------------|
-| UniProt ID | `/submit/uniprot` | `/api/predict/active-sites` | No |
+| Input | Submission endpoint | Synchronous endpoint | Reaction SMILES |
+|----------|----------|----------|-------------------|
+| UniProt accession | `/submit/uniprot` | `/api/predict/active-sites` | Not required |
 | Amino acid sequence | `/submit/sequence` | `/sequence` | Optional |
 | PDB structure file | `/submit/structure` | `/structure` | Optional |
-| Auto-detect | `/auto` | - | Optional (for sequences) |
+| Automatic detection | `/auto` | - | Optional for sequence inputs |
 
-## Legacy Endpoint
+## Legacy endpoints
 
-For backward compatibility:
+These endpoints remain available for backward compatibility:
 
-- `POST /api/query/active-sites` — alias of `/api/predict/active-sites`
+- `POST /api/query/active-sites`: equivalent to `/api/predict/active-sites`
+
+## EasIFA 016 privacy compatibility
+
+Jobs are submitted as Private under the updated EasIFA policy. API URLs, JSON/form parameters, synchronous Markdown and asynchronous success/data response shapes remain compatible. This requires no database change and does not convert jobs to Public. Standard UniProt data may enter EasIFA's public Database through its existing mechanism; job permissions are independent. Sequence and PDB uploads are never made public merely to allow result retrieval.
+
+### Identity propagation and recovery
+
+- HTTP requests prefer `X-Easifa-Session`, otherwise the HttpOnly cookie `enzymind_easifa_session`. Without a valid identity, the service generates a separate random access key. Submission, internal polling and retrieval use the same key. HTTP users never fall back to a shared identity even if the process has a fixed Python-client key configured.
+- The Gateway preserves identity headers, cookies and session cookies in responses. Active-site subroutes forward the original HTTP method and upload content, including GET and multipart requests. Proxy behavior for other services is unchanged.
+- Same-origin browser requests retain their cookie. Cross-origin requests must explicitly provide `X-Easifa-Session`, preventing permissive legacy CORS settings from exposing cookie-owned jobs or recovery keys. Reverse proxies must preserve `Sec-Fetch-Site`.
+- Existing synchronous web, n8n and EnzyMind MCP tools need no additional parameters; each call submits, polls and formats the result. Separate calls that should share an identity must retain the cookie or access key.
+- Asynchronous scripts should use `requests.Session()`, a curl cookie jar, or the same `X-Easifa-Session` on every call. Request bodies are unchanged. A private job cannot be retrieved with its job ID alone after a stateless submission.
+- `GET /api/predict/active-sites/session` explicitly returns the current `session_token` for private storage and recovery after cookie loss. Supplying the original key also reissues the cookie. Treat it as an owner credential: exclude it from logs, ordinary results and shared links. All active-site responses disable caching.
+- `ActiveSitesClient` and direct `ActiveSitesPredictor` calls persist identity automatically. Specify `session_file="/private/path/easifa-session.json"` or `session_key=original_key` as needed; existing constructor parameters and methods remain supported. The default is `$XDG_STATE_HOME/enzymind/easifa/<profile>/session.json`, with state directory `~/.local/state` and a service-address-derived profile. An explicit stable file path preserves identity across address changes.
+- Recovery files use EasIFA's `easifa-access` format and POSIX permissions 0600. Atomic creation prevents concurrent processes from overwriting an identity. Corrupt or unreadable files fail explicitly instead of silently generating a new key. Use separate files for different users; do not expose every user's results through a fixed service-wide identity.
+- Historical Legacy Public EasIFA jobs remain accessible by their original job ID. New Private jobs require their original key or cookie; generating a key does not transfer ownership.
+
+EnzyMind result cards do not automatically create EasIFA sharing links. To open a private result on EasIFA, restore access with the same key or recovery file. Sharing remains an explicit owner action in EasIFA.
+
+### Configuration and rollout
+
+The root `.env.example` lists the settings but is not loaded automatically. Supply them in the process environment or in `.env.production`, which the existing startup scripts load:
+
+```bash
+# Pin production to the upgraded HTTPS EasIFA API for this deployment.
+export ENZYMIND_EASIFA_API_BASE=https://cadd.drugflow.com/easifa/api
+# Only for local HTTP development; production HTTPS defaults to true.
+# export ENZYMIND_EASIFA_COOKIE_SECURE=false
+
+# Direct Python clients: use a stable private file for each user.
+# export ENZYMIND_EASIFA_SESSION_FILE=/absolute/private/path/easifa-session.json
+# Alternatively, set ENZYMIND_EASIFA_SESSION_KEY in the process environment.
+```
+
+Address precedence is explicit `ActiveSitesPredictor(api_base=...)`, then `ENZYMIND_EASIFA_API_BASE`, then the compatibility alias `EASIFA_API_BASE`, then fallback URLs. Empty variables count as unset. HTTP services and direct Python calls use the same rule. Fallback URLs use HTTPS and must refer to the same trusted EasIFA deployment; the API base must include `/easifa/api`.
+
+When upgrading a fallback URL to HTTPS, a missing new identity file falls back to the corresponding existing pre-upgrade credential file, without copying or overwriting it. A corrupt existing file remains an error, rather than causing an identity change.
+
+For a backend privacy update, deploy and restart only `active_sites` and the Gateway after active synchronous predictions finish. No database rebuild, new dependency installation, frontend build or other model restart is required for that change. Preserve recovery files and cookies.
+
+Rollback applies to the Python code and documentation, not stored data. Preserve identity files; older code may again fail to retrieve Private results. Do not bypass EasIFA authorization or publish jobs to make rollback work.
+
+### Validation
+
+```bash
+# From the EnzyMind root, use the existing active_sites environment.
+services/active_sites/venv/bin/python -m pytest services/active_sites/tests -q
+```
+
+Tests cover all three inputs, JSON/form/multipart, synchronous tools, cookie/header identity, two-user isolation, recovery and restart, fallback URLs, Legacy Public jobs, concurrent requests, atomic identity-file creation and Gateway GET/upload forwarding. The recorded local integration used temporary service processes pinned to a local EasIFA test API, without calling production EasIFA or other EnzyMind models.
+
+Recorded validation on 2026-11-03: 71 service/Gateway regression tests and 10 live local integration checks passed. Four new test jobs covered the original synchronous call, UniProt JSON, sequence form input, PDB multipart, restart recovery, historical Public jobs and cross-user rejection. Temporary processes were stopped; existing EnzyMind/EasIFA processes were not restarted, and no external LLM or actual n8n webhook was called.
+
+That privacy update changed `main.py`, `models/active_sites_predictor.py`, `models/easifa_access.py`, `client.py`, `conftest.py`, `tests/test_privacy.py`, and the root Gateway/configuration documentation. The redacted local integration log was saved at `.logs/easifa-privacy-verification.log`. Recovery credentials remained in the test runtime's private directory and were excluded from the log.

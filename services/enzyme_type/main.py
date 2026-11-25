@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 import uvicorn
 
+import os
 from models.enzyme_type_predictor import EnzymeTypePredictor
 
 app = FastAPI(
@@ -45,7 +46,7 @@ def get_predictor() -> EnzymeTypePredictor:
     """Get or initialize the predictor instance."""
     global predictor
     if predictor is None:
-        predictor = EnzymeTypePredictor()
+        predictor = EnzymeTypePredictor(api_url=os.environ.get("RETRO_ENZYME_API_URL") or None)
     return predictor
 
 
@@ -130,7 +131,7 @@ def recommend_enzyme_type(request: EnzymeTypeRequest):
         Enzyme type recommendations with confidence scores
     """
     pred = get_predictor()
-    result = pred.predict(request.query)
+    result = pred.predict(request.query, output_topk=1)
     
     if result.get("success"):
         return EnzymeTypeResponse(

@@ -2,6 +2,13 @@
 """UniProt Protein Function Query Module."""
 
 import requests
+import sys
+from pathlib import Path
+
+root = str(Path(__file__).resolve().parents[3])
+if root not in sys.path:
+    sys.path.insert(0, root)
+from shared.uniprot import uniprot_json_client, UniProtDownloadError
 from typing import Optional, Dict, Any
 
 
@@ -28,23 +35,8 @@ class FunctionQuery:
         Returns:
             Dictionary containing function information and metadata
         """
-        url = f"{self.base_url}/{uniprot_id}.json"
-        
         try:
-            response = requests.get(url, timeout=self.timeout)
-            
-            if response.status_code == 404:
-                return {
-                    "success": False,
-                    "uniprot_id": uniprot_id,
-                    "error": f"UniProt ID '{uniprot_id}' not found",
-                    "function": None,
-                    "protein_name": None,
-                    "organism": None
-                }
-            
-            response.raise_for_status()
-            data = response.json()
+            data = uniprot_json_client.fetch_json(uniprot_id, capability='function')
             
             # Extract function from comments
             function_text = self._extract_function(data)
@@ -59,9 +51,12 @@ class FunctionQuery:
                 "protein_name": protein_name,
                 "organism": organism,
                 "gene_names": gene_names,
+                "source": data.get('enzymindSource'),
                 "error": None
             }
             
+        except UniProtDownloadError as exc:
+            return {"success": False, "uniprot_id": uniprot_id, "error": str(exc), "function": None, "protein_name": None, "organism": None}
         except requests.exceptions.Timeout:
             return {
                 "success": False,

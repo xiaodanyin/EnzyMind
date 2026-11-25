@@ -1,0 +1,66 @@
+{
+  "features": {
+    "success": true,
+    "uniprot_id": "P12345",
+    "sites": [
+      {
+        "type": "Binding site",
+        "start": 65,
+        "end": 65,
+        "description": ""
+      },
+      {
+        "type": "Binding site",
+        "start": 162,
+        "end": 162,
+        "description": ""
+      },
+      {
+        "type": "Binding site",
+        "start": 215,
+        "end": 215,
+        "description": ""
+      },
+      {
+        "type": "Binding site",
+        "start": 407,
+        "end": 407,
+        "description": ""
+      }
+    ],
+    "count": 4
+  },
+  "catalytic-activity": {
+    "success": true,
+    "uniprot_id": "P12345",
+    "activities": [
+      {
+        "reaction_name": "L-aspartate + 2-oxoglutarate = oxaloacetate + L-glutamate",
+        "ec_number": "2.6.1.1",
+        "rhea_id": "21824",
+        "evidence": []
+      },
+      {
+        "reaction_name": "L-kynurenine + 2-oxoglutarate = kynurenate + L-glutamate + H2O",
+        "ec_number": "2.6.1.7",
+        "rhea_id": "65560",
+        "evidence": []
+      }
+    ],
+    "count": 2
+  },
+  "protein-params": {
+    "result": "## ProtParam Results",
+    "data": {
+      "success": true,
+      "sequence_length": 30,
+      "parameters": {
+        "num_amino_acids": 30,
+        "theoretical_pi": 6.49,
+        "molecular_weight": 3199.86,
+        "instability_index": 50.89,
+        "gravy": 1.07
+      }
+    }
+  }
+}

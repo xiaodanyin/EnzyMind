@@ -1,0 +1,11 @@
+[Unit]
+Description=Reap expired EnzyMind Python containers independently of the runner
+
+[Timer]
+OnBootSec=30
+OnUnitActiveSec=15
+AccuracySec=1
+Unit=enzymind-python-reaper.service
+
+[Install]
+WantedBy=timers.target

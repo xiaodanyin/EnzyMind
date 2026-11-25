@@ -18,8 +18,12 @@ from main import app
 
 @pytest.fixture
 def client():
-    """Create a test client."""
-    return TestClient(app)
+    """Exercise successful route wiring without requiring actual GPU weights."""
+    with patch("main.predictor") as worker:
+        worker.check_config.return_value = dict(configured=True, issues=[], output_dir="/tmp/test", docker_image="test", use_gpu=False)
+        worker.predict_from_input.return_value = {"success": True, "pdb_path": "/tmp/test.pdb"}
+        worker.predict_from_file.return_value = worker.predict_from_input.return_value
+        yield TestClient(app)
 
 
 @pytest.fixture
@@ -44,7 +48,9 @@ class TestHealthEndpoint:
     
     def test_health_check(self, client):
         """Test health check endpoint."""
-        response = client.get("/health")
+        with patch("main.predictor") as predictor, patch("main.backend_config", {"configured": True}):
+            response = client.get("/health")
+            predictor.check_config.assert_not_called()
         assert response.status_code == 200
         data = response.json()
         assert "status" in data
@@ -55,9 +61,10 @@ class TestHealthEndpoint:
     def test_health_check_includes_config_status(self, client):
         """Test health check includes ESMFold config status."""
         response = client.get("/health")
-        assert response.status_code == 200
+        assert response.status_code == 503
         data = response.json()
-        assert "esmfold_configured" in data
+        assert data["docker_backend"] is False
+        assert data["status"] == "unavailable"
 
 
 # =============================================================================
@@ -74,10 +81,10 @@ class TestConfigEndpoint:
         data = response.json()
         assert "configured" in data
         assert "issues" in data
-        assert "fold_script_path" in data
-        assert "python_exec" in data
+        assert "docker_image" in data
+        assert "model_cache_dir" in data
         assert "output_dir" in data
-        assert "use_cpu" in data
+        assert "use_gpu" in data
 
 
 # =============================================================================
@@ -94,7 +101,7 @@ class TestPredictStructureEndpoint:
             json={"query": ""}
         )
         
-        assert response.status_code == 200
+        assert response.status_code == 422
         data = response.json()
         assert data["success"] is False
         assert "error" in data
@@ -116,7 +123,7 @@ class TestPredictStructureEndpoint:
             json={"query": "   "}
         )
         
-        assert response.status_code == 200
+        assert response.status_code == 422
         data = response.json()
         assert data["success"] is False
     
@@ -190,7 +197,7 @@ class TestPredictStructureFormEndpoint:
             data={"query": ""}
         )
         
-        assert response.status_code == 200
+        assert response.status_code == 422
         data = response.json()
         assert data["success"] is False
     
@@ -433,7 +440,7 @@ class TestResponseStructure:
             json={"query": ""}
         )
         
-        assert response.status_code == 200
+        assert response.status_code == 422
         data = response.json()
         
         assert "success" in data
@@ -519,3 +526,79 @@ MKFLILLFNILCLFPVLAADNHGVGPQGASGVDPITFDINSNQTGVQLTLPLR"""
             
             assert ">test_header" in content
             assert seq in content
+
+
+def test_health_remains_responsive_during_prediction():
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    started, release = Event(), Event()
+    def predict(**kwargs):
+        started.set()
+        assert release.wait(5)
+        return {"success": False, "error": "test finished"}
+    with patch("main.predictor") as predictor, patch("main.backend_config", {"configured": True}):
+        predictor.predict_from_input.side_effect = predict
+        with ThreadPoolExecutor() as pool:
+            http = TestClient(app)
+            with patch("main.predictor.predict_from_input", side_effect=predict):
+                pending = pool.submit(http.post, "/api/predict/structure", json={"query": "MAAAA"})
+                try:
+                    assert started.wait(2)
+                    health = pool.submit(http.get, "/health").result(timeout=2)
+                    assert health.status_code == 200
+                finally:
+                    release.set()
+                assert pending.result(timeout=2).status_code == 502
+
+
+def test_same_output_names_never_share_structure_artifacts(tmp_path):
+    from models.structure_predictor import StructurePredictor
+    predictor = StructurePredictor(output_dir=str(tmp_path / "out"), fasta_dir=str(tmp_path / "in"),
+                                  static_pdb_dir=str(tmp_path / "static"), log_dir=str(tmp_path / "logs"))
+    def fake_run(input_fasta_path, output_dir, output_name):
+        from pathlib import Path
+        output = Path(output_dir) / (output_name + ".pdb")
+        output.parent.mkdir(parents=True)
+        sequence = Path(input_fasta_path).read_text().splitlines()[1]
+        atoms = [f"ATOM  {i:5d}  CA  ALA A{i:4d}    {1.:8.3f}{2.:8.3f}{3.:8.3f}" for i in range(1,len(sequence)+1)]
+        output.write_text("HEADER " + sequence + "\n" + "\n".join(atoms))
+        return {"success": True, "pdb_path": str(output)}
+    predictor._runner = MagicMock()
+    predictor._runner.predict_structure.side_effect = fake_run
+    first = predictor.predict_from_sequence("MAAAA", "query")
+    second = predictor.predict_from_sequence("MGGGG", "query")
+    assert first["success"] and second["success"]
+    assert first["static_path"] != second["static_path"]
+    from pathlib import Path
+    assert "MAAAA" in Path(first["pdb_path"]).read_text()
+    assert "MGGGG" not in Path(first["pdb_path"]).read_text()
+
+
+def test_requested_gpu_failure_is_not_reported_ready(tmp_path):
+    from models.structure_predictor import StructurePredictor
+    predictor = StructurePredictor(output_dir=str(tmp_path / "out"), fasta_dir=str(tmp_path / "in"),
+                                  static_pdb_dir=str(tmp_path / "static"), log_dir=str(tmp_path / "logs"),
+                                  docker_image="configured-esmfold-image", use_gpu=True)
+    predictor._runner = MagicMock()
+    predictor._runner.check_docker_available.return_value = True
+    predictor._runner.check_image_available.return_value = True
+    with patch("models.structure_predictor.subprocess.run", return_value=MagicMock(returncode=1)) as check:
+        config = predictor.check_config()
+    assert config["configured"] is False
+    assert config["gpu_available"] is False
+    assert "configured-esmfold-image" in check.call_args.args[0]
+
+
+@pytest.mark.parametrize("exit_code,log,expected", [(1, "RuntimeError: CUDA out of memory", "structure_memory_exhausted"),
+                                                  (0, "Failed (CUDA out of memory)", "structure_memory_exhausted"),
+                                                  (125, "daemon unavailable", "structure_worker_failed")])
+def test_worker_diagnostics_survive_file_redirection(tmp_path, exit_code, log, expected):
+    from models.structure_predictor import DockerESMFoldRunner
+    from subprocess import CompletedProcess
+    runner = DockerESMFoldRunner(model_cache_dir=str(tmp_path), log_dir=str(tmp_path))
+    def run(cmd, **kwargs):
+        kwargs["stderr"].write(log)
+        return CompletedProcess(cmd, exit_code)
+    with patch("models.structure_predictor.subprocess.run", side_effect=run):
+        result = runner.predict_structure(str(tmp_path/"job.fasta"), str(tmp_path/"out"), "job")
+    assert result["error_code"] == expected

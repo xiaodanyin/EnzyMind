@@ -1,12 +1,12 @@
-# Kinetic Params Service - Kinetic Parameters Query Microservice
+# Reported Kinetic Parameters Service
 
 ## Port: 18917
 
-## API Endpoints
+## API endpoints
 - `/health` - Health check
-- `/api/query/kinetics` - Query kinetic parameters
+- `/api/query/kinetics` - Retrieve reported kinetic parameters
 
-## Usage Examples
+## Examples
 
 ```bash
 curl -X POST http://localhost:18917/api/query/kinetics \
