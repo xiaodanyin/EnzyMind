@@ -1,5 +1,23 @@
 # EnzyMind
 
+<div align="center">
+
+![EnzyMind Logo](frontend/src/assets/enzymind_logo_icon_v3.png)
+
+**Enzyme Intelligence Platform**
+
+[![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-teal.svg)](https://fastapi.tiangolo.com/)
+[![n8n](https://img.shields.io/badge/n8n-Agent-orange.svg)](https://n8n.io/)
+[![Vue.js](https://img.shields.io/badge/Vue.js-3.4-green.svg)](https://vuejs.org/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![GitHub Stars](https://img.shields.io/github/stars/xiaodanyin/EnzyMind?style=social)](https://github.com/xiaodanyin/EnzyMind)
+[![WebSite](https://img.shields.io/badge/WebSite-blue)](https://cadd.zju.edu.cn/enzymind/)
+
+</div>
+
+---
+
 **An agent-assisted web platform for enzyme research.**
 
 Ask a biological question in the Workspace and let the Agent select tools, compare evidence, and generate figures—or run individual tools directly with your own inputs and parameters.
