@@ -188,4 +188,4 @@ Initial installation keeps Python Analysis disabled unless `--enable-python` is 
 
 ## License
 
-MIT License © 2024 EnzyMind Team.
+MIT License © 2025 EnzyMind Team.
