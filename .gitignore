@@ -1,10 +1,12 @@
 *.svg
 *.csv
 .env
-# macOS system files
-.DS_Store
+
 !tests/data/
 !tests/data/**
 !tests/evaluation/**/*.csv
 __pycache__
 files
+
+# macOS system files
+.DS_Store
