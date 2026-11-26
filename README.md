@@ -74,6 +74,7 @@ The web interface provides 11 standalone tools. Protein inputs accept UniProt ac
 | `services/` | 19 scientific services and the optional Python sandbox |
 | `shared/` | Shared UniProt retrieval, caching, and sequence utilities |
 | `scripts/` | Deployment, model downloads, service management, and verification |
+| `tests/` | Evaluation and test results |
 
 ## Deployment
 
