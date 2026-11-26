@@ -20,10 +20,26 @@
 
 **An agent-assisted web platform for enzyme research.**
 
-Ask a biological question in the Workspace and let the Agent select tools, compare evidence, and generate figures—or run individual tools directly with your own inputs and parameters.
+Ask a enzyme-related question in the Workspace and let the Agent select tools, compare evidence, and generate figures—or run individual tools directly with your own inputs and parameters.
 
-[Website](https://cadd.zju.edu.cn/enzymind/) · [User Guide](https://cadd.zju.edu.cn/enzymind/help)  
-[Backup URL](https://cadd.iddd.group/enzymind/)
+[Website](https://cadd.zju.edu.cn/enzymind/) · [Backup URL](https://cadd.iddd.group/enzymind/) · [User Guide](https://cadd.zju.edu.cn/enzymind/help)  
+
+## Agent Workspace
+
+The Agent is powered by **n8n Workspace v2**, with the FastAPI Gateway managing access control, persistence, and tool execution.
+
+- **Automatic tool selection:** Ask a enzyme-related question and the Agent selects and chains relevant queries, predictions, and calculations, citing saved results in its answer.
+- **Reusable evidence:** Attach protein files or saved results, inspect individual result cards, and ask follow-up questions in persistent conversations. Standalone tools and the Agent share the workspace result library.
+- **Conversation memory:** Older exchanges can be summarized while preserving original turns. The advisory context threshold is 100,000 estimated tokens, subject to the configured model's actual context limit.
+- **Live progress and control:** Stream responses and tool events, reconnect to an in-progress turn, or cancel orchestration (already-submitted scientific predictions may still finish and save their results).
+- **Python Analysis (optional):** An offline Python 3.12 sandbox with Biopython, RDKit, NumPy, pandas, SciPy, Matplotlib, and Pillow. It reads authorized saved evidence to run calculations, generate PNG figures, and export CSV/JSON/TXT files.
+- **Programmatic access:** The Python/Jupyter [Workspace client](agent_n8n/README.md) supports streaming, session recovery, result references, and downloads via the same API.
+
+**Limits, allowance, and retention:**
+
+- **Per-turn limits:** Up to **12 tool calls** per turn, including at most **3 Python executions** (each runs in a fresh container with a 60-second timeout, 1 CPU, and 1 GiB memory).
+- **Daily allowance:** 10 successful Agent turns per day per browser workspace by default; users can supply a personal DeepSeek key for additional turns. Standalone tools do not consume this allowance.
+- **Retention and privacy:** Results and conversation turns are retained for **90 days**. Access is tied to a private workspace key—a result URL alone does not grant access. Export the workspace access file to restore access in another browser, and download scientific results before expiry.
 
 ## Supported Tools
 
@@ -47,22 +63,6 @@ The web interface provides 11 standalone tools. Protein inputs accept UniProt ac
 - **Data sources and fallback:** UniProt queries check a configured **local snapshot first**, falling back to the official API for missing records or annotation sections. Local BLAST searches a portable UniProt database, with remote NCBI databases available as explicit alternatives. Partial annotations preserve their source and availability notices.
 - **Visualizations and evidence separation:** Results share sequence views, Mol* protein structures, Ketcher molecular depictions, EC hierarchies, and expandable figures and tables (coordinates are displayed only when available). Predicted kinetics, database annotations, and code calculations remain distinct evidence types; model scores are not experimental measurements.
 
-## Agent Workspace
-
-The Agent is powered by **n8n Workspace v2**, with the FastAPI Gateway managing access control, persistence, and tool execution.
-
-- **Automatic tool selection:** Ask a research question and the Agent selects and chains relevant queries, predictions, and calculations, citing saved results in its answer.
-- **Reusable evidence:** Attach protein files or saved results, inspect individual result cards, and ask follow-up questions in persistent conversations. Standalone tools and the Agent share the workspace result library.
-- **Conversation memory:** Older exchanges can be summarized while preserving original turns. The advisory context threshold is 100,000 estimated tokens, subject to the configured model's actual context limit.
-- **Live progress and control:** Stream responses and tool events, reconnect to an in-progress turn, or cancel orchestration (already-submitted scientific predictions may still finish and save their results).
-- **Python Analysis (optional):** An offline Python 3.12 sandbox with Biopython, RDKit, NumPy, pandas, SciPy, Matplotlib, and Pillow. It reads authorized saved evidence to run calculations, generate PNG figures, and export CSV/JSON/TXT files.
-- **Programmatic access:** The Python/Jupyter [Workspace client](agent_n8n/README.md) supports streaming, session recovery, result references, and downloads via the same API.
-
-**Limits, allowance, and retention:**
-
-- **Per-turn limits:** Up to **12 tool calls** per turn, including at most **3 Python executions** (each runs in a fresh container with a 60-second timeout, 1 CPU, and 1 GiB memory).
-- **Daily allowance:** 10 successful Agent turns per day per browser workspace by default; users can supply a personal DeepSeek key for additional turns. Standalone tools do not consume this allowance.
-- **Retention and privacy:** Results and conversation turns are retained for **90 days**. Access is tied to a private workspace key—a result URL alone does not grant access. Export the workspace access file to restore access in another browser, and download scientific results before expiry.
 
 ## Project Layout
 

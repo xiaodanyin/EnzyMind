@@ -1,0 +1,9 @@
+*.svg
+*.csv
+.env
+.DS_Store
+!tests/data/
+!tests/data/**
+!tests/evaluation/**/*.csv
+__pycache__
+files
